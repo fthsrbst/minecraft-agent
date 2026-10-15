@@ -104,13 +104,21 @@ Details, work items and status: [`docs/plan.md`](docs/plan.md).
 
 ## Getting started
 
-Not runnable yet. The first setup steps arrive with plan items P1.1 and P1.2. You will need:
+Not playable yet; the Minecraft server and the first bot arrive with plan item P1.2. You will need:
 
 - Python 3.13 and [uv](https://docs.astral.sh/uv/)
 - Node.js 22
 - Docker (the Minecraft server runs in a container)
 - Minecraft Java Edition 1.21.11 (only to watch in-game or to teach the bot)
 - API keys for Anthropic and, optionally, TypeSafe (see [`.env.example`](.env.example))
+
+Check the core (Python):
+
+```bash
+cd core
+uv sync
+uv run ruff check && uv run pyright && uv run pytest
+```
 
 > The bot runs LLM-written code. Only connect it to your own local server, never to a public one.
 
