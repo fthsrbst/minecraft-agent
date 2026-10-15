@@ -63,7 +63,7 @@ end to end. Depth (sandbox hardening, statistics, L3 fine-tuning, voice, Doom) m
 
 ### P1.1 Python core skeleton
 - **Goal:** a Python package Fatih set up himself, with tests running.
-- **Deliverables:** `core/` with `uv`, `ruff`, `pytest` (pyright in basic mode first, strict later); a first small module with tests; CI running lint + tests.
+- **Deliverables:** `core/` with `uv`, `ruff`, `pytest` pyright strict; a guard test that keeps game names out of the core; a first small module with tests; CI running lint + tests.
 - **Acceptance:** `uv run pytest` and `uv run ruff check` pass locally and in CI.
 - **Learning focus:** Python modules and packages, virtual environments with `uv`, writing a first test, what CI is.
 
