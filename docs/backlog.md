@@ -1,40 +1,41 @@
-# Backlog — yarım kalan işler
+# Backlog: unfinished work
 
-Agentlar bir oturumu bitirirken **tamamlanmamış** her işi buraya yazar. Bir sonraki agent işe buradan başlar.
-Planlanan ama hiç başlanmamış işler buraya değil, `research.md` §12 yol haritasına aittir.
+Agents write every **unfinished** piece of work here at the end of a session; the next agent starts from here.
+Planned work that has not started belongs in [`plan.md`](plan.md), not here.
 
-## Kurallar
+## Rules
 
-- Her madde tek bir iş. En yeni madde **Açık** bölümünün en üstüne.
-- İş bitince maddeyi silme: **Kapanan** bölümüne taşı, kapanış tarihini ve kanıtı (commit, test çıktısı) ekle.
-- Bir madde büyürse (alt işleri, ayrıntılı notları, çok adımlı planı varsa) `docs/backlog/<konu>.md` adında
-  **alt-backlog** dosyası aç ve maddeden ona bağlantı ver. Alt-backlog da aynı formatı kullanır;
-  o da büyürse `docs/backlog/<konu>/<alt-konu>.md` diye derinleşebilir.
-- Yarım bırakırken "neredeydim" bilgisini net yaz: hangi dosya, hangi adım, neyin doğrulanmadığı.
+- One item per piece of work. The newest item goes to the top of **Open**.
+- Never delete a finished item: move it to **Closed** with the closing date and evidence (PR, test output).
+- If an item grows (sub-tasks, detailed notes, a multi-step plan), open a **sub-backlog** file `docs/backlog/<topic>.md`
+  and link it from the item. Sub-backlogs use the same format and can nest further: `docs/backlog/<topic>/<sub-topic>.md`.
+- When leaving work unfinished, say exactly where you were: which file, which step, what is not verified.
 
-## Madde formatı
+## Item format
 
 ```markdown
-### [M2] Kısa başlık
-- **Durum**: yarım | engelli | inceleme bekliyor
-- **Açan**: <agent veya Fatih> · **Tarih**: YYYY-AA-GG
-- **Ne yapıldı**: ...
-- **Kalan**: ...
-- **Neredeydim**: dosya/fonksiyon, son çalıştırılan komut
-- **Engel / bilinmeyen**: (varsa)
-- **Alt-backlog**: [docs/backlog/<konu>.md](backlog/<konu>.md) (varsa)
+### [P1.4] Short title
+- **Status**: partial | blocked | in review
+- **Opened by**: <agent or Fatih> · **Date**: YYYY-MM-DD
+- **Done so far**: ...
+- **Remaining**: ...
+- **Where I was**: file/function, last command run
+- **Blocker / unknowns**: (if any)
+- **Branch / PR**: (if any)
+- **Sub-backlog**: [docs/backlog/<topic>.md](backlog/<topic>.md) (if any)
 ```
 
-`[M0]`…`[M9]` etiketi research.md §12 yol haritasındaki kilometre taşını gösterir.
+The `[P1.4]` tag is the work-item ID in `plan.md`.
 
 ---
 
-## Açık
+## Open
 
-_Henüz yarım kalan iş yok. Kod yazımı başlamadı; Fatih'in `notes.md` → "Açık sorular"a cevabı bekleniyor._
+_No unfinished work yet. Coding starts with P1.1 in `plan.md`._
 
 ---
 
-## Kapanan
+## Closed
 
-- **2026-10-15 · claude-code** — Araştırma ve dokümantasyon iskeleti: `docs/research.md`, `AGENTS.md` (+ `CLAUDE.md` sembolik bağı), `docs/notes.md`, `docs/backlog.md`.
+- **2026-10-15 · claude-code**: Switched the repository to English and public; replaced GitHub issues with `docs/plan.md`; rewrote the README.
+- **2026-10-15 · claude-code**: Research and documentation skeleton: `docs/research.md`, `AGENTS.md` (+ `CLAUDE.md` symlink), `docs/notes.md`, `docs/backlog.md`.

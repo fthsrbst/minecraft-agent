@@ -1,26 +1,28 @@
-## Ne değişti
+## Plan item
 
-<!-- 2–4 madde. Hangi dosyalar, hangi davranış. -->
+<!-- The work-item ID from docs/plan.md, e.g. P1.4, and which of its planned PRs this is. -->
 
-Closes #
+## What changed
 
-## Neden
+<!-- 2–4 bullets: which files, which behavior. -->
 
-<!-- Issue'daki problem ve seçilen yaklaşımın gerekçesi. Alternatif düşünüldüyse neden seçilmedi. -->
+## Why
 
-## Nasıl doğrulandı
+<!-- The problem and the reason for this approach. If an alternative was considered, why it was not chosen. -->
 
-<!-- Çalıştırılan komutlar ve sonuçları. Doğrulanamayan kısımları açıkça "doğrulanmadı" diye yaz. -->
+## How it was verified
+
+<!-- Commands run and their results. Label anything that could not be verified as "not verified". -->
 
 - [ ] Lint / format
-- [ ] Tip kontrolü
-- [ ] Testler
-- [ ] Oyunda elle deneme (gerekiyorsa)
+- [ ] Type check
+- [ ] Tests
+- [ ] Manual check in the game (if relevant)
 
-## Öğrenme notu
+## Learning notes
 
-<!-- Fatih için: bu PR'da hangi kavram/teknik var, neden böyle yapıldı, kodu okurken nereden başlamalı, neye dikkat etmeli. -->
+<!-- For the reviewer: which concepts or techniques this PR uses, why it is built this way, where to start reading, what to pay attention to. -->
 
-## İnceleme için bakılacak yerler
+## Where to look closely
 
-<!-- Riskli veya tartışmaya açık noktalar; özellikle bakılmasını istediğin dosya/satırlar. -->
+<!-- Risky or debatable parts; files/lines that deserve a careful look. -->
