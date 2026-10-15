@@ -7,10 +7,11 @@ Start every note with the date (YYYY-MM-DD) and the author (`Fatih` / agent name
 
 ## Open questions (waiting for Fatih)
 
-- [ ] **License:** the repository is public; which license? (Suggestion: MIT, which also matches the Mindcraft parts we borrow.)
+_No open questions right now._
 
 ### Answered (2026-10-15, Fatih)
 
+- [x] **License:** MIT. → `LICENSE`, AGENTS.md decision 23
 - [x] **Repository:** public; **everything in English**; a proper GitHub README. → AGENTS.md decision 21
 - [x] **Work tracking:** a plan document instead of GitHub issues; code still via PRs that Fatih reviews. → `docs/plan.md`, AGENTS.md decision 22
 - [x] **Targets:** the success thresholds in research.md §11 are accepted. → AGENTS.md decision 17b

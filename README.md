@@ -8,6 +8,7 @@ Minecraft is the first game; the core is game-independent and every game is a pl
 ![Python](https://img.shields.io/badge/core-Python%203.13-3776AB)
 ![TypeScript](https://img.shields.io/badge/minecraft%20plugin-TypeScript-3178C6)
 ![Minecraft](https://img.shields.io/badge/Minecraft-Java%201.21.11-62B47A)
+![License](https://img.shields.io/badge/license-MIT-green)
 
 > **Project status:** the research and design are complete and the coding phase has started.
 > Nothing below is runnable yet; setup instructions will appear here as the code lands.
@@ -141,4 +142,4 @@ An individual project for the Softito AI course ("A Learning Agent in Minecraft"
 
 ## License
 
-Not chosen yet.
+[MIT](LICENSE). Parts borrowed from other MIT-licensed projects (such as Mindcraft) keep their original copyright notices.

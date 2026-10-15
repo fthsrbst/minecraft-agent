@@ -75,6 +75,7 @@ When a proposal is confirmed, mark it DECIDED here and save the rationale to the
 | 20 | Multi-agent | DECIDED (2026-10-15) | A planned future extension (after delivery): per-agent identities, shared/private memory, a world coordinator, structured inter-agent messages. Keep identities per agent from the start (research.md §5.5) |
 | 21 | Language of the repository | DECIDED (2026-10-15) | **Everything in the repository is English**: documents, code, comments, commit messages, PRs, templates. Conversation with Fatih may be Turkish |
 | 22 | Work tracking | DECIDED (2026-10-15) | Work is tracked in **`docs/plan.md`**, not in GitHub issues. Code still goes through PRs reviewed by Fatih |
+| 23 | License | DECIDED (2026-10-15) | **MIT** (`LICENSE`). Code borrowed from other projects keeps its original license notice; record source, version and license for every borrowed file |
 
 **External review (2026-10-15):** Claude Opus 5.5 and GPT-6-Astra independently critiqued the whole design. Shared findings are in the decisions above; questions needing Fatih's decision were decided on 2026-10-15 (research.md §14.4). Raw reports: `docs/reviews/`. The coding phase starts with the spikes in research.md §14.6, scheduled in plan.md.
 
