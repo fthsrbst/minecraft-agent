@@ -14,7 +14,8 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "vitest run"
+    "test": "vitest run",
+    "hello": "npm run build && node --env-file-if-exists=../../.env dist/hello-bot.js"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
@@ -24,5 +25,8 @@
     "typescript": "6.0.3",
     "typescript-eslint": "8.71.2",
     "vitest": "5.0.4"
+  },
+  "dependencies": {
+    "mineflayer": "4.39.0"
   }
 }
