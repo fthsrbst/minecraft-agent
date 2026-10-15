@@ -1,22 +1,22 @@
 ---
-name: Hata
-about: Beklenmeyen davranış
+name: Bug report
+about: Unexpected behavior
 labels: type:bug
 ---
 
-## Ne oldu
+## What happened
 
-## Ne bekleniyordu
+## What was expected
 
-## Nasıl tekrarlanır
+## How to reproduce
 
 1. 
 2. 
 
-## Ortam
+## Environment
 
-<!-- Makine (Mac / fatih-pc), MC sürümü, seed, görünürlük modu, model, commit. -->
+<!-- Machine, Minecraft version, seed, visibility mode, model, commit. -->
 
-## Kanıt
+## Evidence
 
-<!-- Log, iz kimliği, ekran görüntüsü. -->
+<!-- Logs, trace id, screenshots. -->
