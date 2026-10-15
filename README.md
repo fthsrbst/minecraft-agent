@@ -104,7 +104,7 @@ Details, work items and status: [`docs/plan.md`](docs/plan.md).
 
 ## Getting started
 
-Not playable yet; the Minecraft server and the first bot arrive with plan item P1.2. You will need:
+Early prototype: a local server and a hello bot that joins and chats. You will need:
 
 - Python 3.13 and [uv](https://docs.astral.sh/uv/)
 - Node.js 22
@@ -127,6 +127,16 @@ cd plugins/minecraft
 npm ci
 npm run lint && npm run typecheck && npm test
 ```
+
+Start the local server and the hello bot:
+
+```bash
+cp .env.example .env               # then set MC_RCON_PASSWORD
+docker compose up -d               # Minecraft 1.21.11, localhost only; first start takes ~1 minute
+cd plugins/minecraft && npm run hello
+```
+
+Join `localhost` from Minecraft 1.21.11 and write a chat message that mentions `AgentBot`; the bot answers.
 
 > The bot runs LLM-written code. Only connect it to your own local server, never to a public one.
 

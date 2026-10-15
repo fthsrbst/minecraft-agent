@@ -58,7 +58,7 @@ end to end. Depth (sandbox hardening, statistics, L3 fine-tuning, voice, Doom) m
 | ID | Work item | Status |
 |---|---|---|
 | P1.1 | Python core skeleton | in review (#29, #30) |
-| P1.2 | Local server and hello bot (first TypeScript) | todo |
+| P1.2 | Local server and hello bot (first TypeScript) | in review |
 | P1.3 | Plugin bridge: core ↔ plugin | todo |
 
 ### P1.1 Python core skeleton
