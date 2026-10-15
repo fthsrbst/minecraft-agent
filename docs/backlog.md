@@ -31,7 +31,15 @@ The `[P1.4]` tag is the work-item ID in `plan.md`.
 
 ## Open
 
-_No unfinished work yet. Coding starts with P1.1 in `plan.md`._
+### [P2.1] Live LLM call not verified yet
+- **Status**: blocked
+- **Opened by**: claude-code · **Date**: 2026-10-15
+- **Done so far**: `LlmClient`, Anthropic backend, pricing, JSONL telemetry; 40 core tests pass; the demo's failure path (no key) is verified and writes a telemetry record.
+- **Remaining**: one live call (`cd core && uv run --env-file ../.env python -m agent_core.llm_demo`) and paste its telemetry line into PR #34.
+- **Where I was**: `core/src/agent_core/llm_demo.py`
+- **Blocker / unknowns**: no `ANTHROPIC_API_KEY` on this machine; Fatih adds it to `.env`.
+- **Branch / PR**: `p2.1-telemetry-llm`
+
 
 ---
 
