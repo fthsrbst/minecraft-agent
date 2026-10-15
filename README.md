@@ -138,6 +138,12 @@ cd plugins/minecraft && npm run hello
 
 Join `localhost` from Minecraft 1.21.11 and write a chat message that mentions `AgentBot`; the bot answers.
 
+Drive the bot from the Python core through the plugin bridge:
+
+```bash
+cd core && uv run python -m agent_core.bridge_demo ../plugins/minecraft
+```
+
 > The bot runs LLM-written code. Only connect it to your own local server, never to a public one.
 
 ## Documentation

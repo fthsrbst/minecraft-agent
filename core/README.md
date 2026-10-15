@@ -10,3 +10,14 @@ uv run ruff format      # format
 uv run pyright          # strict type check
 uv run pytest           # tests
 ```
+
+## Talking to a plugin
+
+`agent_core.plugins.PluginClient` starts a plugin from its directory (`plugin.json`), and offers
+`handshake()`, `observe()`, `act(primitive, args)` and `next_event()`. Every request has a timeout.
+Demo against a running game server:
+
+```bash
+(cd ../plugins/minecraft && npm run build)
+uv run python -m agent_core.bridge_demo ../plugins/minecraft
+```
