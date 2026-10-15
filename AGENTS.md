@@ -63,7 +63,7 @@ When a proposal is confirmed, mark it DECIDED here and save the rationale to the
 | 11f | Skill design | PROPOSED | 5 levels (reflex → primitive → basic → composite → routine); a contract for every skill (parameter schema, pre/postcondition predicates, side effects, typed failures, cancel/resume, risk, duration); lifecycle draft → verified → trusted → retired, repairs as candidate versions; scenario tests + regression; a bounded `obtain(item, n)` recipe solver; a hand-written starter core (research.md §8) |
 | 11g | Commands / pipelines | PROPOSED | Natural language, voice and visual pipelines compile into one **task graph** (Task IR: skill, sequence, fallback, loop, condition, trigger, guard, budget, report). Deterministic `#command` parser first, then L1, then L2. Read-back; approval only in `consult` (timed); persistent state; AFK summary (research.md §9) |
 | 11h | Personality | PROPOSED | Optional persona + bounded mood + narration + diary + highlights. Player commands always first; off in "work mode". Post-loss recovery and stagnation detection are independent of personality and always on (research.md §10) |
-| 12 | Delivery scope | DECIDED (2026-10-15) | **Everything in the vision is in scope** (voice, editor, approver/consult, personality, episodic RAG, L3 fine-tuning); the second game **Doom comes after delivery**. The reviewers' schedule risk is managed by **ordering**: first the core that measures the main claim, with the measurement updated at every milestone, then extensions (plan.md) |
+| 12 | Delivery scope | DECIDED (2026-10-15, narrowed the same day) | **Narrowed prototype:** every part of the vision appears in the delivery, each in its thinnest working form (scope table in plan.md). Depth (hardened executor, full arbiter, statistics, voice, L3 fine-tuning) moves to "Later"; Doom comes after delivery. The full design in research.md stays the long-term target |
 | 13 | Action arbiter | PROPOSED | A single action owner: skills, L0, L1 and triggers propose; the arbiter picks by priority (emergency safety > player command > trigger > task), manages resource ownership, waits for interrupt acks, discards late results of interrupted work, re-checks preconditions before resuming (research.md §6.4) |
 | 14 | Evaluation protocol | PROPOSED | Pre-registration; learning seeds ≠ test seeds; frozen library during testing; given and learned skills reported separately; ≥20–30 paired runs in the main arms + McNemar/bootstrap; one main hypothesis first; mostly short RCON scenarios; a wall-clock budget (research.md §11.1) |
 | 15 | Perception and authority | DECIDED (visibility, 2026-10-15) + PROPOSED (authority) | **Two visibility modes:** fair mode (default for evaluation/report; only blocks in line of sight or exposed to air) + full-knowledge mode (selectable for AFK); the mode is written into every result file. Authority: the agent is not op; scenario/reset/ground truth only for the evaluator (RCON); in-game text is data, never instructions |
@@ -76,12 +76,14 @@ When a proposal is confirmed, mark it DECIDED here and save the rationale to the
 | 21 | Language of the repository | DECIDED (2026-10-15) | **Everything in the repository is English**: documents, code, comments, commit messages, PRs, templates. Conversation with Fatih may be Turkish |
 | 22 | Work tracking | DECIDED (2026-10-15) | Work is tracked in **`docs/plan.md`**, not in GitHub issues. Code still goes through PRs reviewed by Fatih |
 | 23 | License | DECIDED (2026-10-15) | **MIT** (`LICENSE`). Code borrowed from other projects keeps its original license notice; record source, version and license for every borrowed file |
+| 24 | Who writes the code | DECIDED (2026-10-15) | **Fatih writes the code; Claude guides, reviews and helps optimize.** Claude gives task cards (goal, concepts, signatures, acceptance tests) and graded hints, never a ready-made solution unless Fatih asks for a specific piece. The earlier agent-written P1.1 (PRs #29, #30) was closed so Fatih starts from scratch |
+| 25 | Prototype simplifications | DECIDED (2026-10-15) | For the prototype: LLM-written skills are **JavaScript** run in a child process with a timeout and a deny-list (TypeScript + `tsc` gate later, see #8); pyright starts in basic mode; one L1 decision point. Python first, the TypeScript plugin stays a thin Mineflayer layer |
 
 **External review (2026-10-15):** Claude Opus 5.5 and GPT-6-Astra independently critiqued the whole design. Shared findings are in the decisions above; questions needing Fatih's decision were decided on 2026-10-15 (research.md §14.4). Raw reports: `docs/reviews/`. The coding phase starts with the spikes in research.md §14.6, scheduled in plan.md.
 
 ## Architecture (target)
 
-Details and diagrams: [docs/research.md §5](docs/research.md). Modules (no code yet):
+Details and diagrams: [docs/research.md §5](docs/research.md). This is the long-term target; the prototype implements a thin slice of it (plan.md). Modules:
 
 Core / host (`core/`, **Python**, game-independent; no game, block or item names inside):
 - `orchestrator`: the autonomy engine; learn / run-task / eval loops; decision log
@@ -104,9 +106,11 @@ Game plugins (`plugins/<game>/`, each a separate process with a manifest + compo
 
 ## Workflow
 
-Repository: [`fthsrbst/minecraft-agent`](https://github.com/fthsrbst/minecraft-agent) (public). **Claude writes the code; Fatih reviews it and learns from it.** The goal is also to learn a professional workflow.
+Repository: [`fthsrbst/minecraft-agent`](https://github.com/fthsrbst/minecraft-agent) (public). **Fatih writes the code; Claude guides, reviews and helps optimize** (decision 24). The goal is to learn both the code and a professional workflow.
 
-1. **Work comes from `docs/plan.md`.** Each item has an ID (`P1.4`), goal, deliverables, acceptance criterion and planned PRs. Update its status in the same PR.
+**Guiding rules for agents:** do not write project code unless Fatih asks for a specific piece. Start each work item with a task card (goal, concepts to learn, files, signatures, acceptance tests). Give hints in grades: a question, then a direction, then the concept, then a small example only on request. Review PRs like a real reviewer and explain the "why"; Fatih applies the changes. Documentation and planning files may still be written by agents.
+
+1. **Work comes from `docs/plan.md`.** Each item has an ID (`P1.3`), goal, deliverables, acceptance criterion and learning focus. Update its status in the same PR.
 2. **Branch:** `p<week>.<item>-<short-name>` (e.g. `p1.4-plugin-protocol`). No direct commits to `main`.
 3. **Small PRs.** One reviewable step per PR, ideally under ~400 changed lines. The description follows `.github/pull_request_template.md`; the **"Learning notes"** section is mandatory: which concepts, why this approach, where to start reading.
 4. **Verify before review:** tests, lint and type checks pass locally; the commands and their output go into the PR. Anything not verified is labeled "not verified".
