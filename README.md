@@ -120,6 +120,14 @@ uv sync
 uv run ruff check && uv run pyright && uv run pytest
 ```
 
+Check the Minecraft plugin (TypeScript):
+
+```bash
+cd plugins/minecraft
+npm ci
+npm run lint && npm run typecheck && npm test
+```
+
 > The bot runs LLM-written code. Only connect it to your own local server, never to a public one.
 
 ## Documentation

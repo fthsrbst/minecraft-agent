@@ -1,0 +1,34 @@
+name: plugin-minecraft
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - "plugins/minecraft/**"
+      - ".github/workflows/plugin-minecraft.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: plugins/minecraft
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: plugins/minecraft/.nvmrc
+          cache: npm
+          cache-dependency-path: plugins/minecraft/package-lock.json
+      # npm ci installs exactly package-lock.json and fails if it disagrees with package.json.
+      - run: npm ci
+      - run: npm run format:check
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
