@@ -1,0 +1,33 @@
+name: core
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - "core/**"
+      - ".github/workflows/core.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: core
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.0 # upstream publishes no floating major tags
+        with:
+          python-version: "3.13"
+          enable-cache: true
+          cache-dependency-glob: core/uv.lock
+      # --locked fails if uv.lock is out of date with pyproject.toml.
+      - run: uv sync --locked
+      - run: uv run ruff format --check
+      - run: uv run ruff check
+      - run: uv run pyright
+      - run: uv run pytest
