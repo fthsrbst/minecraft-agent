@@ -1,0 +1,8 @@
+{
+  "id": "minecraft",
+  "version": "0.1.0",
+  "protocolVersion": "gpp/1",
+  "game": { "name": "Minecraft Java Edition", "version": "1.21.11" },
+  "command": ["node", "dist/plugin-main.js"],
+  "capabilities": []
+}
