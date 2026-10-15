@@ -1,0 +1,33 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyright/
+*.egg-info/
+
+# Node
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Runtime data (worlds, runs, logs, models)
+data/
+runs/
+logs/
+worlds/
+models/
+*.sqlite
+*.sqlite-journal
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
