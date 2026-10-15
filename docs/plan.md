@@ -28,23 +28,21 @@ end to end. Depth (sandbox hardening, statistics, L3 fine-tuning, voice, Doom) m
 
 ## How we work
 
-- **Fatih writes the code; Claude guides, reviews and helps optimize.** Claude does not write project code unless
-  Fatih explicitly asks for a specific piece. The goal is that Fatih can explain every line of the prototype.
-- **Each work item starts with a task card from Claude:** the goal, the concepts to learn, file locations, function
-  signatures and the acceptance tests (Claude may write the first tests; later Fatih writes them). No ready-made
-  solution.
-- **Hints are graded:** a question first, then a direction, then the concept, and a small example only when Fatih
-  asks for it.
-- **Every code change goes through a pull request.** Claude reviews it like a real code review and explains the "why";
-  Fatih applies the improvements himself. Nothing is merged without Fatih's approval.
+- **Claude writes the code; Fatih owns the architecture and the logic.** (Revised 2026-10-15: the earlier
+  "Fatih writes the code" mode was dropped to keep the delivery date.) Fatih must be able to explain how every part
+  works and why it is built that way, without having typed every line.
+- **Each PR teaches the design:** its learning notes explain where the piece sits in the system, the data flow, the
+  key decisions and their trade-offs, and where to start reading.
+- **Every code change goes through a pull request.** Fatih reviews it, asks questions
+  and requests changes; Claude applies them. Nothing is merged without Fatih's approval.
 - **Python first.** The core (Python) carries most of the logic. The TypeScript plugin stays a thin layer over
-  Mineflayer, so TypeScript is learned in small, focused steps.
+  Mineflayer.
 - **This plan is the tracker.** Each work item has an ID (`P1.3`), a goal, deliverables, an acceptance criterion and
   a learning focus. The status column is updated in the same PR that changes it.
 - **Branches:** `p<week>.<item>-<short-name>` (e.g. `p1.4-plugin-bridge`). No direct commits to `main`.
 - **Small PRs.** One PR = one reviewable step, ideally under ~400 changed lines.
 - **Every PR description follows the template** (`.github/pull_request_template.md`), including the learning notes:
-  what Fatih learned and what was hard.
+  the architecture and logic of the change.
 - **Verification before review:** lint, type checks and tests pass locally; game behavior is checked against the
   local server when relevant. Anything not verified is labeled "not verified".
 - **Unfinished work** is written to [`backlog.md`](backlog.md) at the end of a session.

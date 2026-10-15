@@ -76,7 +76,7 @@ When a proposal is confirmed, mark it DECIDED here and save the rationale to the
 | 21 | Language of the repository | DECIDED (2026-10-15) | **Everything in the repository is English**: documents, code, comments, commit messages, PRs, templates. Conversation with Fatih may be Turkish |
 | 22 | Work tracking | DECIDED (2026-10-15) | Work is tracked in **`docs/plan.md`**, not in GitHub issues. Code still goes through PRs reviewed by Fatih |
 | 23 | License | DECIDED (2026-10-15) | **MIT** (`LICENSE`). Code borrowed from other projects keeps its original license notice; record source, version and license for every borrowed file |
-| 24 | Who writes the code | DECIDED (2026-10-15) | **Fatih writes the code; Claude guides, reviews and helps optimize.** Claude gives task cards (goal, concepts, signatures, acceptance tests) and graded hints, never a ready-made solution unless Fatih asks for a specific piece. The earlier agent-written P1.1 (PRs #29, #30) was closed so Fatih starts from scratch |
+| 24 | Who writes the code | DECIDED (2026-10-15, revised the same day) | **Claude writes the code; Fatih owns the architecture and the logic.** Fatih reviews and approves every PR; each PR explains the design (what, why, how the parts connect) so Fatih can explain the system without having typed every line. The earlier "Fatih writes the code" mode was dropped to keep the delivery date. PRs #29/#30 (P1.1) are reopened |
 | 25 | Prototype simplifications | DECIDED (2026-10-15) | For the prototype: LLM-written skills are **JavaScript** run in a child process with a timeout and a deny-list (TypeScript + `tsc` gate later, see #8); pyright starts in basic mode; one L1 decision point. Python first, the TypeScript plugin stays a thin Mineflayer layer |
 
 **External review (2026-10-15):** Claude Opus 5.5 and GPT-6-Astra independently critiqued the whole design. Shared findings are in the decisions above; questions needing Fatih's decision were decided on 2026-10-15 (research.md §14.4). Raw reports: `docs/reviews/`. The coding phase starts with the spikes in research.md §14.6, scheduled in plan.md.
@@ -106,9 +106,9 @@ Game plugins (`plugins/<game>/`, each a separate process with a manifest + compo
 
 ## Workflow
 
-Repository: [`fthsrbst/minecraft-agent`](https://github.com/fthsrbst/minecraft-agent) (public). **Fatih writes the code; Claude guides, reviews and helps optimize** (decision 24). The goal is to learn both the code and a professional workflow.
+Repository: [`fthsrbst/minecraft-agent`](https://github.com/fthsrbst/minecraft-agent) (public). **Claude writes the code; Fatih owns the architecture and reviews every PR** (decision 24). The goal is a working prototype that Fatih understands end to end, built with a professional workflow.
 
-**Guiding rules for agents:** do not write project code unless Fatih asks for a specific piece. Start each work item with a task card (goal, concepts to learn, files, signatures, acceptance tests). Give hints in grades: a question, then a direction, then the concept, then a small example only on request. Review PRs like a real reviewer and explain the "why"; Fatih applies the changes. Documentation and planning files may still be written by agents.
+**Guiding rules for agents:** implement work items from `docs/plan.md` directly, with production-quality code and tests. Every PR explains the architecture and logic in its "Learning notes": where the piece sits in the system, the data flow, the key decisions and their trade-offs, and where to start reading. Keep PRs small enough that Fatih can follow them.
 
 1. **Work comes from `docs/plan.md`.** Each item has an ID (`P1.3`), goal, deliverables, acceptance criterion and learning focus. Update its status in the same PR.
 2. **Branch:** `p<week>.<item>-<short-name>` (e.g. `p1.4-plugin-protocol`). No direct commits to `main`.

@@ -37,6 +37,7 @@ _No unfinished work yet. Coding starts with P1.1 in `plan.md`._
 
 ## Closed
 
+- **2026-10-15 · claude-code**: Fatih revised decision 24: Claude writes the code, Fatih owns the architecture and reviews. PRs #29/#30 reopened for P1.1.
 - **2026-10-15 · claude-code**: Closed the agent-written P1.1 PRs (#29, #30); Fatih will write the prototype himself. `plan.md` rewritten as the narrowed prototype plan.
 - **2026-10-15 · claude-code**: Switched the repository to English and public; replaced GitHub issues with `docs/plan.md`; rewrote the README.
 - **2026-10-15 · claude-code**: Research and documentation skeleton: `docs/research.md`, `AGENTS.md` (+ `CLAUDE.md` symlink), `docs/notes.md`, `docs/backlog.md`.
