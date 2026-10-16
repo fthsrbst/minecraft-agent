@@ -1,0 +1,55 @@
+{
+  "id": "13-boat",
+  "goal": "Craft a boat of any wood, starting with an empty inventory.",
+  "predicate": {
+    "type": "any",
+    "of": [
+      {
+        "type": "has_item",
+        "item": "oak_boat",
+        "count": 1
+      },
+      {
+        "type": "has_item",
+        "item": "spruce_boat",
+        "count": 1
+      },
+      {
+        "type": "has_item",
+        "item": "birch_boat",
+        "count": 1
+      },
+      {
+        "type": "has_item",
+        "item": "jungle_boat",
+        "count": 1
+      },
+      {
+        "type": "has_item",
+        "item": "acacia_boat",
+        "count": 1
+      },
+      {
+        "type": "has_item",
+        "item": "dark_oak_boat",
+        "count": 1
+      },
+      {
+        "type": "has_item",
+        "item": "mangrove_boat",
+        "count": 1
+      },
+      {
+        "type": "has_item",
+        "item": "cherry_boat",
+        "count": 1
+      },
+      {
+        "type": "has_item",
+        "item": "pale_oak_boat",
+        "count": 1
+      }
+    ]
+  },
+  "timeoutS": 240
+}

@@ -1,0 +1,17 @@
+{
+  "id": "17-stone-sword",
+  "goal": "Craft a stone sword. You start with a wooden pickaxe.",
+  "predicate": {
+    "type": "has_item",
+    "item": "stone_sword",
+    "count": 1
+  },
+  "timeoutS": 360,
+  "setup": {
+    "give": [
+      {
+        "item": "wooden_pickaxe"
+      }
+    ]
+  }
+}

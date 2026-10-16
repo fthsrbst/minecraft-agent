@@ -1,0 +1,17 @@
+{
+  "id": "19-furnace",
+  "goal": "Craft a furnace. You start with a wooden pickaxe.",
+  "predicate": {
+    "type": "has_item",
+    "item": "furnace",
+    "count": 1
+  },
+  "timeoutS": 420,
+  "setup": {
+    "give": [
+      {
+        "item": "wooden_pickaxe"
+      }
+    ]
+  }
+}

@@ -1,0 +1,55 @@
+{
+  "id": "02-planks",
+  "goal": "Craft 8 planks of any wood, starting with an empty inventory.",
+  "predicate": {
+    "type": "any",
+    "of": [
+      {
+        "type": "has_item",
+        "item": "oak_planks",
+        "count": 8
+      },
+      {
+        "type": "has_item",
+        "item": "spruce_planks",
+        "count": 8
+      },
+      {
+        "type": "has_item",
+        "item": "birch_planks",
+        "count": 8
+      },
+      {
+        "type": "has_item",
+        "item": "jungle_planks",
+        "count": 8
+      },
+      {
+        "type": "has_item",
+        "item": "acacia_planks",
+        "count": 8
+      },
+      {
+        "type": "has_item",
+        "item": "dark_oak_planks",
+        "count": 8
+      },
+      {
+        "type": "has_item",
+        "item": "mangrove_planks",
+        "count": 8
+      },
+      {
+        "type": "has_item",
+        "item": "cherry_planks",
+        "count": 8
+      },
+      {
+        "type": "has_item",
+        "item": "pale_oak_planks",
+        "count": 8
+      }
+    ]
+  },
+  "timeoutS": 180
+}

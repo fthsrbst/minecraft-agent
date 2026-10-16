@@ -1,0 +1,10 @@
+{
+  "id": "08-wooden-shovel",
+  "goal": "Craft a wooden shovel, starting with an empty inventory.",
+  "predicate": {
+    "type": "has_item",
+    "item": "wooden_shovel",
+    "count": 1
+  },
+  "timeoutS": 240
+}

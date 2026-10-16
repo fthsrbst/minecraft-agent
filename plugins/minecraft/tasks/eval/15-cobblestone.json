@@ -1,0 +1,17 @@
+{
+  "id": "15-cobblestone",
+  "goal": "Mine 3 cobblestone. You start with a wooden pickaxe.",
+  "predicate": {
+    "type": "has_item",
+    "item": "cobblestone",
+    "count": 3
+  },
+  "timeoutS": 300,
+  "setup": {
+    "give": [
+      {
+        "item": "wooden_pickaxe"
+      }
+    ]
+  }
+}
