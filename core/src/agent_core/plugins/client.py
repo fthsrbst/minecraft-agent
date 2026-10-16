@@ -150,8 +150,9 @@ class PluginClient:
         )
         return self._expect_object("handshake", result)
 
-    async def observe(self) -> JsonObject:
-        return self._expect_object("observe", await self.request("observe"))
+    async def observe(self, params: JsonObject | None = None) -> JsonObject:
+        """Current observation; `params` are plugin-defined options (e.g. how much to include)."""
+        return self._expect_object("observe", await self.request("observe", params))
 
     async def act(
         self,

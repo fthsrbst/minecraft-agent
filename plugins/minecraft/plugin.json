@@ -4,11 +4,18 @@
   "protocolVersion": "gpp/1",
   "game": { "name": "Minecraft Java Edition", "version": "1.21.11" },
   "command": ["node", "dist/plugin-main.js"],
-  "env": ["MC_HOST", "MC_PORT", "MC_USERNAME"],
+  "env": ["MC_HOST", "MC_PORT", "MC_USERNAME", "MC_VISIBILITY"],
   "components": {
     "scenario": {
       "command": ["node", "dist/scenario-main.js"],
-      "env": ["MC_RCON_HOST", "MC_RCON_PORT", "MC_RCON_PASSWORD"]
+      "env": [
+        "MC_RCON_HOST",
+        "MC_RCON_PORT",
+        "MC_RCON_PASSWORD",
+        "MC_COMPOSE_DIR",
+        "DOCKER_HOST",
+        "DOCKER_CONTEXT"
+      ]
     }
   },
   "capabilities": ["scenario"]

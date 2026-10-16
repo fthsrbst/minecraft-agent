@@ -37,10 +37,54 @@ describe("setupCommands", () => {
     ["bad time", { time: "dusk" }, /time/],
     ["bad weather", { weather: "snow" }, /weather/],
     ["bad clear", { clear: "yes" }, /clear/],
-    ["unknown field", { summon: "zombie" }, /unknown setup field\(s\): summon/],
+    ["unknown field", { op: "Fatih" }, /unknown setup field\(s\): op/],
     ["inherited item name", { give: [{ item: "constructor" }] }, /unknown item "constructor"/],
     ["air", { give: [{ item: "air" }] }, /unknown item "air"/],
     ["inherited time name", { time: "constructor" }, /time/],
+  ])("rejects %s", (_name, spec, message) => {
+    expect(() => setupCommands("AgentBot", spec)).toThrow(message);
+  });
+});
+
+describe("terrain and entities", () => {
+  it("orders terrain before the player and entities after", () => {
+    expect(
+      setupCommands("AgentBot", {
+        summon: [{ entity: "zombie", x: 3, y: 65, z: 0 }],
+        give: [{ item: "stone" }],
+        teleport: { x: 0, y: 65, z: 0 },
+        place: [{ block: "oak_log", x: 2, y: 65, z: 2 }],
+        fill: [{ block: "stone", from: { x: -2, y: 64, z: -2 }, to: { x: 2, y: 64, z: 2 } }],
+      }),
+    ).toEqual([
+      "fill -2 64 -2 2 64 2 minecraft:stone",
+      "setblock 2 65 2 minecraft:oak_log",
+      "tp AgentBot 0 65 0",
+      "give AgentBot minecraft:stone 1",
+      'summon minecraft:zombie 3 65 0 {Tags:["scenario"]}',
+    ]);
+  });
+
+  it.each<[string, JsonObject, RegExp]>([
+    ["unknown block", { place: [{ block: "unobtanium", x: 0, y: 64, z: 0 }] }, /unknown block/],
+    [
+      "fractional block coordinate",
+      { place: [{ block: "stone", x: 0.5, y: 64, z: 0 }] },
+      /place\.x/,
+    ],
+    ["below the world", { place: [{ block: "stone", x: 0, y: -65, z: 0 }] }, /place\.y/],
+    [
+      "huge fill",
+      { fill: [{ block: "stone", from: { x: 0, y: 0, z: 0 }, to: { x: 99, y: 9, z: 99 } }] },
+      /fill volume 100000/,
+    ],
+    ["summon a player", { summon: [{ entity: "player", x: 0, y: 64, z: 0 }] }, /unknown entity/],
+    ["unknown entity", { summon: [{ entity: "dragonling", x: 0, y: 64, z: 0 }] }, /unknown entity/],
+    [
+      "too many summons",
+      { summon: Array(21).fill({ entity: "pig", x: 0, y: 64, z: 0 }) },
+      /at most 20/,
+    ],
   ])("rejects %s", (_name, spec, message) => {
     expect(() => setupCommands("AgentBot", spec)).toThrow(message);
   });
@@ -58,12 +102,17 @@ describe("teleport formatting", () => {
 });
 
 describe("resetCommands", () => {
-  it("clears the inventory and the drops around the player", () => {
+  it("clears the inventory, scenario mobs and the drops around the player", () => {
     const commands = resetCommands("AgentBot");
-    expect(commands[0]).toBe("clear AgentBot");
+    expect(commands[0]).toBe("kill @e[tag=scenario]");
+    expect(commands).toContain("clear AgentBot");
     expect(commands).toContain(
       "execute at AgentBot run kill @e[type=minecraft:item,distance=..64]",
     );
+  });
+
+  it("teleports to the spawn point first when one is given", () => {
+    expect(resetCommands("AgentBot", { x: 1, y: 70, z: 2 })[0]).toBe("tp AgentBot 1 70 2");
   });
 });
 
@@ -82,5 +131,13 @@ describe("isFailureReply", () => {
     expect(isFailureReply("No player was found")).toBe(true);
     expect(isFailureReply("Unknown or incomplete command, see below for error")).toBe(true);
     expect(isFailureReply("Gave 3 [Oak Log] to AgentBot")).toBe(false);
+    expect(isFailureReply("No entity was found", "summon minecraft:pig 0 64 0")).toBe(true);
+  });
+
+  it("accepts an empty kill", () => {
+    expect(isFailureReply("No entity was found", "kill @e[tag=scenario]")).toBe(false);
+    expect(isFailureReply("No entity was found", "execute at A run kill @e[type=item]")).toBe(
+      false,
+    );
   });
 });

@@ -21,7 +21,7 @@ async def check_scenario(
 ) -> bool:
     passed = True
     for run in range(1, runs + 1):
-        await scenario_plugin.request("scenario.reset", {"player": player})
+        await scenario_plugin.request("scenario.reset", {**scenario.reset, "player": player})
         after_reset = await wait_for_verdict(bot, scenario.predicate, Verdict.FALSE)
         await scenario_plugin.request("scenario.setup", {"player": player, "spec": scenario.setup})
         after_setup = await wait_for_verdict(bot, scenario.predicate, Verdict.TRUE)

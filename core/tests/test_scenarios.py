@@ -28,6 +28,14 @@ def test_loads_a_scenario(tmp_path: Path) -> None:
     assert evaluate(scenario.predicate, {"inventory": []}) is Verdict.FALSE
 
 
+def test_reset_options_are_passed_through(tmp_path: Path) -> None:
+    scenario = load_scenario(
+        write(tmp_path, {**VALID, "reset": {"spawn": {"x": 0, "y": 64, "z": 0}}})
+    )
+    assert scenario.reset == {"spawn": {"x": 0, "y": 64, "z": 0}}
+    assert load_scenario(write(tmp_path, VALID)).reset == {}
+
+
 def test_repository_scenarios_load() -> None:
     root = Path(__file__).resolve().parents[2] / "plugins"
     paths = sorted(root.glob("*/scenarios/*.json"))
@@ -43,6 +51,7 @@ def test_repository_scenarios_load() -> None:
         ({"setup": []}, "`setup`"),
         ({"description": 3}, "`description`"),
         ({"predicate": {"type": "nope"}}, "invalid predicate"),
+        ({"reset": []}, "`reset`"),
     ],
 )
 def test_rejects_bad_scenarios(tmp_path: Path, change: dict[str, object], message: str) -> None:

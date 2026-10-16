@@ -8,10 +8,11 @@ import type { BotConfig } from "../bot-config.js";
 import { GAME_VERSION } from "../plugin-info.js";
 import { ErrorCode, type JsonObject, RpcError } from "../rpc/json-rpc.js";
 import type { Action } from "./actions.js";
+import { buildObservation, type ObserveOptions } from "./observation.js";
 
 export type EmitEvent = (event: JsonObject) => void;
 
-const round = (value: number): number => Math.round(value * 100) / 100;
+const CHUNK_WAIT_MS = 10_000;
 
 export class MinecraftRuntime {
   private bot: Bot | null = null;
@@ -19,6 +20,7 @@ export class MinecraftRuntime {
   private lastDisconnect: string | null = null;
   // Actions share the bot's control state, so they run one at a time in arrival order.
   private actQueue: Promise<unknown> = Promise.resolve();
+  private currentAction: AbortController | null = null;
 
   constructor(
     private readonly config: BotConfig,
@@ -35,24 +37,23 @@ export class MinecraftRuntime {
     return this.connecting;
   }
 
-  observe(): JsonObject {
-    const bot = this.requireBot();
-    const { x, y, z } = bot.entity.position;
-    return {
-      username: bot.username,
-      // World age in ticks: tells two observations apart and orders them.
-      tick: bot.time.age,
-      position: { x: round(x), y: round(y), z: round(z) },
-      yaw: round(bot.entity.yaw),
-      dimension: bot.game.dimension,
-      health: bot.health,
-      food: bot.food,
-      timeOfDay: bot.time.timeOfDay,
-      // All slots, not items(): items() skips armor, offhand and the crafting grid.
-      inventory: bot.inventory.slots.flatMap((item) =>
-        item === null ? [] : [{ name: item.name, count: item.count }],
-      ),
-    };
+  observe(options: ObserveOptions): JsonObject {
+    return buildObservation(this.requireBot(), options);
+  }
+
+  /** The connected bot, for in-process primitives (the skill broker). */
+  get liveBot(): Bot {
+    return this.requireBot();
+  }
+
+  /** Stops the running action at once; it resolves with `interrupted: true`. */
+  interrupt(): boolean {
+    if (this.currentAction === null) {
+      return false;
+    }
+    this.currentAction.abort();
+    this.bot?.clearControlStates();
+    return true;
   }
 
   act(action: Action): Promise<JsonObject> {
@@ -68,15 +69,32 @@ export class MinecraftRuntime {
         bot.chat(action.text);
         return { ok: true };
       case "move": {
+        const controller = new AbortController();
+        this.currentAction = controller;
         bot.setControlState(action.direction, true);
         bot.setControlState("jump", action.jump);
         try {
-          await new Promise((resolve) => setTimeout(resolve, action.durationMs));
+          await new Promise<void>((resolve) => {
+            const timer = setTimeout(resolve, action.durationMs);
+            controller.signal.addEventListener("abort", () => {
+              clearTimeout(timer);
+              resolve();
+            });
+          });
         } finally {
           bot.clearControlStates();
+          this.currentAction = null;
         }
-        const { position } = this.observe();
-        return { ok: true, position: position ?? null };
+        const { x, y, z } = bot.entity.position;
+        return {
+          ok: !controller.signal.aborted,
+          interrupted: controller.signal.aborted,
+          position: {
+            x: Math.round(x * 100) / 100,
+            y: Math.round(y * 100) / 100,
+            z: Math.round(z * 100) / 100,
+          },
+        };
       }
     }
   }
@@ -144,7 +162,14 @@ export class MinecraftRuntime {
         bot.removeAllListeners("end");
         this.bot = bot;
         this.forwardEvents(bot);
-        resolve();
+        // Spawn arrives before the surrounding chunks; an observation taken now would see no blocks.
+        // The wait is bounded so a slow server delays the handshake but never hangs it.
+        void Promise.race([
+          bot.waitForChunksToLoad(),
+          new Promise((done) => setTimeout(done, CHUNK_WAIT_MS)),
+        ]).then(() => {
+          resolve();
+        });
       });
     });
   }
