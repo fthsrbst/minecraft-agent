@@ -9,6 +9,9 @@ Minecraft Java 1.21.11 facts for writing skills:
 - Mining stone needs a pickaxe and drops cobblestone; mining it by hand drops nothing. Logs, dirt and sand can be
   mined by hand. `bot.collect` and `bot.dig` pick the best tool in the inventory automatically.
 - Stone is usually under 1–5 blocks of dirt/grass, or exposed on hills and in cliffs. If no stone is in sight,
-  dig down next to yourself with `bot.dig(x, y - 1, z)` at your own feet position, repeatedly, then look again.
+  dig down at your own feet with `bot.dig(x, y - 1, z)` one block at a time, at most 8 blocks, and observe after
+  each block. Stop digging if `standingOn` or the block below is water or lava, or health drops.
+- Item kinds differ between worlds (log and plank kinds by biome): read them from the observation and the
+  inventory, never assume one kind.
 - Only what is in sight counts (fair mode): `observe` and `collect` see blocks touching open air near you.
 - Counts in `craft(item, count)` are items wanted, not crafts; craft enough planks first for everything after.

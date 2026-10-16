@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { ErrorCode, type JsonObject, type JsonValue, RpcError } from "../rpc/json-rpc.js";
 import { type Primitive, SkillBroker } from "./broker.js";
+import { syntaxProblem } from "./static-check.js";
 
 function setup(primitives: Record<string, Primitive> = {}) {
   const events: JsonObject[] = [];
@@ -245,10 +246,16 @@ describe("SkillBroker", () => {
   it("survives a forgotten await on a failing primitive", async () => {
     const failing: Primitive = () => Promise.reject(new Error("no path"));
     const { broker, done } = setup({ goTo: failing, wait: () => Promise.resolve(null) });
-    broker.start('void bot.goTo(1, 2, 3); await bot.wait(50); return "kept going";', {}, 10_000);
+    broker.start('void bot.goTo(1, 2, 3); await bot.wait(300); return "kept going";', {}, 10_000);
     const result = await done();
     expect(result.status).toBe("ok");
     expect(result.result).toBe("kept going");
     expect(result.logs).toEqual(["unhandled rejection: Error: no path"]);
+  });
+
+  it("finds syntax errors without running anything", () => {
+    expect(syntaxProblem("return 1;")).toBeNull();
+    expect(syntaxProblem("const x = ;")).toMatch(/SyntaxError/);
+    expect(syntaxProblem("async function for() {}")).toMatch(/SyntaxError/);
   });
 });

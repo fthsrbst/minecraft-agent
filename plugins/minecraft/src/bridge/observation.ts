@@ -304,9 +304,10 @@ export function buildObservation(bot: Bot, options: ObserveOptions): JsonObject 
     timeOfDay: bot.time.timeOfDay,
     standingOn: below?.name ?? null,
     equipment: equipment(bot),
-    // All slots, not items(): items() skips armor, offhand and the crafting grid.
-    inventory: bot.inventory.slots.flatMap((item) =>
-      item === null ? [] : [{ name: item.name, count: item.count }],
+    // All slots but the crafting result (slot 0): items() alone would skip armor, offhand and the
+    // crafting grid, while an uncollected craft result is not held yet.
+    inventory: bot.inventory.slots.flatMap((item, slot) =>
+      item === null || slot === 0 ? [] : [{ name: item.name, count: item.count }],
     ),
     ...(options.nearby ? nearbyFields(bot, options) : {}),
   };

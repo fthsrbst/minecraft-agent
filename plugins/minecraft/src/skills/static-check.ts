@@ -1,3 +1,5 @@
+import { Script } from "node:vm";
+
 /**
  * A fast first filter on skill source. It is NOT the security boundary (string checks are easy to
  * evade); the boundary is the executor process: no bot handle, no environment, Node's permission
@@ -15,7 +17,20 @@ const FORBIDDEN: readonly { readonly pattern: RegExp; readonly reason: string }[
   { pattern: /chat\s*\(\s*["'`]\s*\//, reason: "chat commands starting with `/` are not allowed" },
 ];
 
-export const MAX_SOURCE_LENGTH = 50_000;
+export const MAX_SOURCE_LENGTH = 200_000;
+
+/**
+ * Compiles the code as a skill body without running it: syntax errors are found before a process
+ * starts or any game time is spent. Compiling never executes anything.
+ */
+export function syntaxProblem(code: string): string | null {
+  try {
+    new Script(`(async () => {\n${code}\n})()`, { filename: "skill.js" });
+    return null;
+  } catch (error: unknown) {
+    return error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+  }
+}
 
 export function checkSkillSource(code: string): string[] {
   const problems: string[] = [];
