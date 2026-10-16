@@ -85,7 +85,7 @@ end to end. Depth (sandbox hardening, statistics, L3 fine-tuning, voice, Doom) m
 
 | ID | Work item | Status |
 |---|---|---|
-| P2.1 | Telemetry and LLM client | in review (live call pending an API key) |
+| P2.1 | Telemetry and LLM client | in review (#34) |
 | P2.2 | Predicates and RCON scenarios | todo |
 | P2.3 | Skill execution in the plugin | todo |
 | P2.4 | The Voyager loop + skill library | todo |

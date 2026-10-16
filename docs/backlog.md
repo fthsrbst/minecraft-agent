@@ -31,20 +31,13 @@ The `[P1.4]` tag is the work-item ID in `plan.md`.
 
 ## Open
 
-### [P2.1] Live LLM call not verified yet
-- **Status**: blocked
-- **Opened by**: claude-code · **Date**: 2026-10-15
-- **Done so far**: `LlmClient`, Anthropic backend, pricing, JSONL telemetry; 40 core tests pass; the demo's failure path (no key) is verified and writes a telemetry record.
-- **Remaining**: one live call (`cd core && uv run --env-file ../.env python -m agent_core.llm_demo`) and paste its telemetry line into PR #34.
-- **Where I was**: `core/src/agent_core/llm_demo.py`
-- **Blocker / unknowns**: no `ANTHROPIC_API_KEY` on this machine; Fatih adds it to `.env`.
-- **Branch / PR**: `p2.1-telemetry-llm`
-
+_No unfinished work._
 
 ---
 
 ## Closed
 
+- **2026-10-16 · claude-code**: [P2.1] Live LLM calls verified: Haiku 5.5 (32/78 tokens, $0.0000422, 1590 ms) and Sonnet 5.5 with server-side fallback (28/51 tokens, $0.000566, 1356 ms), both logged to telemetry (PR #34).
 - **2026-10-15 · claude-code**: Fatih revised decision 24: Claude writes the code, Fatih owns the architecture and reviews. PRs #29/#30 reopened for P1.1.
 - **2026-10-15 · claude-code**: Closed the agent-written P1.1 PRs (#29, #30); Fatih will write the prototype himself. `plan.md` rewritten as the narrowed prototype plan.
 - **2026-10-15 · claude-code**: Switched the repository to English and public; replaced GitHub issues with `docs/plan.md`; rewrote the README.
