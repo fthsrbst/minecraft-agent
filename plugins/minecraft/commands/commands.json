@@ -1,0 +1,60 @@
+{
+  "prefix": "#",
+  "commands": [
+    {
+      "name": "goto",
+      "usage": "#goto <x> <y> <z> | #goto <place>",
+      "description": "Walk to a position or a saved place.",
+      "args": [{ "name": "target", "type": "position" }],
+      "skill": "goto.js"
+    },
+    {
+      "name": "mine",
+      "usage": "#mine <block> [count]",
+      "description": "Mine and pick up blocks of a kind that are in sight.",
+      "args": [
+        { "name": "block", "type": "word" },
+        { "name": "count", "type": "int", "default": 1, "min": 1, "max": 64 }
+      ],
+      "skill": "mine.js"
+    },
+    {
+      "name": "follow",
+      "usage": "#follow [player] [seconds]",
+      "description": "Follow a player (the sender by default) for a while.",
+      "args": [
+        { "name": "player", "type": "player", "default": "$sender" },
+        { "name": "seconds", "type": "int", "default": 120, "min": 5, "max": 600 }
+      ],
+      "skill": "follow.js"
+    },
+    {
+      "name": "stop",
+      "usage": "#stop",
+      "description": "Stop whatever the bot is doing.",
+      "args": [],
+      "builtin": "stop"
+    },
+    {
+      "name": "sethome",
+      "usage": "#sethome [name]",
+      "description": "Remember the bot's position under a name (default: home).",
+      "args": [{ "name": "name", "type": "word", "default": "home" }],
+      "builtin": "remember-place"
+    },
+    {
+      "name": "places",
+      "usage": "#places",
+      "description": "List the remembered places.",
+      "args": [],
+      "builtin": "list-places"
+    },
+    {
+      "name": "help",
+      "usage": "#help",
+      "description": "List the commands.",
+      "args": [],
+      "builtin": "help"
+    }
+  ]
+}

@@ -12,6 +12,7 @@ import { DEFAULT_TIMEOUT_MS, SkillBroker } from "./skills/broker.js";
 import { createPrimitives, SKILL_API } from "./skills/primitives.js";
 import { checkSkillSource, syntaxProblem } from "./skills/static-check.js";
 import { ReflexEngine } from "./reflexes/engine.js";
+import { loadCommands } from "./commands.js";
 import { loadBotConfig } from "./bot-config.js";
 import {
   ErrorCode,
@@ -48,6 +49,7 @@ const manifest = JSON.parse(
 
 const visibility = parseVisibility(process.env.MC_VISIBILITY);
 const skillGuide = readFileSync(new URL("../prompts/skill-guide.md", import.meta.url), "utf8");
+const commands = loadCommands(new URL("../commands/", import.meta.url));
 
 const emit = (event: JsonObject): void => {
   server.notify("event", event);
@@ -128,6 +130,10 @@ const handlers = new Map<string, Handler>([
         skillApi: SKILL_API,
         // Game knowledge for the code-writing prompt; the core inserts it without reading it.
         skillGuide,
+        // The #command vocabulary: each command is a built-in skill or a builtin the core handles.
+        commands,
+        // The world this bot plays in; the core keys memories (places) by it.
+        world: { level: process.env.MC_LEVEL ?? "world" },
       };
     },
   ],
@@ -148,8 +154,12 @@ const handlers = new Map<string, Handler>([
     "act",
     (params) => {
       requireNoReflex();
-      requireNoSkill();
-      return runtime.act(parseAction(params));
+      const action = parseAction(params);
+      // Chat does not touch the controls, so the bot may talk while a skill works.
+      if (action.primitive !== "chat") {
+        requireNoSkill();
+      }
+      return runtime.act(action);
     },
   ],
   [
