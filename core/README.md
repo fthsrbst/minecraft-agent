@@ -48,3 +48,12 @@ uv run --env-file ../.env python -m agent_core.scenario_demo ../plugins/minecraf
 ```
 
 For each scenario and run: reset → the predicate must be `false`, setup → it must become `true`.
+
+## Task-run records
+
+`agent_core.runs.TaskRun` opens a run (task, arm, seed, `world_instance_id`, visibility, models,
+library snapshot, and a `trace_id` to pass to every LLM call of the run); `finish(verdict, ...)`
+sums that trace's LLM calls from telemetry and returns a `TaskRunRecord`, which `RunRecorder`
+appends as one JSON line. The evaluation report (P4.2, P5.1) is computed from these records.
+`scenario_demo --seed N` runs every scenario in a fresh world of seed N and writes records to
+`runs/scenario-demo.jsonl`.
