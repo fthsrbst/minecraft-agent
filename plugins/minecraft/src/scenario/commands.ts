@@ -108,7 +108,9 @@ function fillCommands(value: JsonValue | undefined): string[] {
   });
 }
 
-function summonCommands(value: JsonValue | undefined): string[] {
+const MAX_OFFSET = 32;
+
+function summonCommands(player: string, value: JsonValue | undefined): string[] {
   return list(value, "summon", MAX_SUMMONS).map((entry) => {
     const { entity } = entry;
     if (
@@ -118,8 +120,19 @@ function summonCommands(value: JsonValue | undefined): string[] {
     ) {
       throw invalid(`unknown entity ${JSON.stringify(entity ?? null)} for ${GAME_VERSION}.`);
     }
+    const tags = `{Tags:["${SCENARIO_TAG}"]}`;
+    if (entry.offset !== undefined) {
+      // Relative to the player, wherever the bot is at that moment (e.g. during a running skill).
+      const offset = entry.offset;
+      if (!isObject(offset)) {
+        throw invalid("`summon.offset` must be { x, y, z }.");
+      }
+      const d = (key: "x" | "y" | "z"): string =>
+        String(finiteNumber(offset[key], `summon.offset.${key}`, MAX_OFFSET));
+      return `execute at ${player} run summon minecraft:${entity} ~${d("x")} ~${d("y")} ~${d("z")} ${tags}`;
+    }
     const position = blockPosition(entry, "summon");
-    return `summon minecraft:${entity} ${at(position)} {Tags:["${SCENARIO_TAG}"]}`;
+    return `summon minecraft:${entity} ${at(position)} ${tags}`;
   });
 }
 
@@ -227,7 +240,7 @@ export function setupCommands(player: string, spec: JsonObject): string[] {
     ...placeCommands(spec.place),
     ...teleportCommand(player, spec.teleport),
     ...giveCommands(player, spec.give),
-    ...summonCommands(spec.summon),
+    ...summonCommands(player, spec.summon),
     ...timeCommand(spec.time),
     ...weatherCommand(spec.weather),
   ];

@@ -1,0 +1,6 @@
+{
+  "id": "creeper-nearby",
+  "description": "A creeper appears 6 blocks from the bot: the reflex must flee, not fight.",
+  "setup": { "summon": [{ "entity": "creeper", "offset": { "x": 6, "y": 0, "z": 0 } }] },
+  "predicate": { "type": "compare", "path": "health", "op": ">", "value": 0 }
+}

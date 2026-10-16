@@ -167,12 +167,12 @@ export class SkillBroker {
   }
 
   /** Stops the running skill (or the one with this id); false if nothing matched. */
-  cancel(runId?: string): boolean {
+  cancel(runId?: string, reason = "cancelled"): boolean {
     const run = this.active;
     if (run === null || (runId !== undefined && run.runId !== runId)) {
       return false;
     }
-    this.finish(run, "cancelled", null, "cancelled");
+    this.finish(run, "cancelled", null, reason);
     return true;
   }
 

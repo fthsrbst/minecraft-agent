@@ -245,7 +245,9 @@ describe("SkillBroker", () => {
 
   it("survives a forgotten await on a failing primitive", async () => {
     const failing: Primitive = () => Promise.reject(new Error("no path"));
-    const { broker, done } = setup({ goTo: failing, wait: () => Promise.resolve(null) });
+    const wait: Primitive = (args) =>
+      new Promise((resolve) => setTimeout(() => { resolve(null); }, Number(args.ms)));
+    const { broker, done } = setup({ goTo: failing, wait });
     broker.start('void bot.goTo(1, 2, 3); await bot.wait(300); return "kept going";', {}, 10_000);
     const result = await done();
     expect(result.status).toBe("ok");

@@ -1,0 +1,27 @@
+{
+  "id": "zombie-nearby",
+  "description": "The bot gets a stone sword and a zombie appears 5 blocks away (mid-task): the L0 reflex must interrupt and fight.",
+  "setup": {
+    "give": [
+      {
+        "item": "stone_sword"
+      }
+    ],
+    "summon": [
+      {
+        "entity": "zombie",
+        "offset": {
+          "x": 5,
+          "y": 0,
+          "z": 0
+        }
+      }
+    ]
+  },
+  "predicate": {
+    "type": "compare",
+    "path": "health",
+    "op": ">",
+    "value": 0
+  }
+}

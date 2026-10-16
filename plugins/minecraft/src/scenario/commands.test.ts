@@ -81,12 +81,25 @@ describe("terrain and entities", () => {
     ["summon a player", { summon: [{ entity: "player", x: 0, y: 64, z: 0 }] }, /unknown entity/],
     ["unknown entity", { summon: [{ entity: "dragonling", x: 0, y: 64, z: 0 }] }, /unknown entity/],
     [
+      "offset too far",
+      { summon: [{ entity: "zombie", offset: { x: 99, y: 0, z: 0 } }] },
+      /summon\.offset\.x/,
+    ],
+    [
       "too many summons",
       { summon: Array(21).fill({ entity: "pig", x: 0, y: 64, z: 0 }) },
       /at most 20/,
     ],
   ])("rejects %s", (_name, spec, message) => {
     expect(() => setupCommands("AgentBot", spec)).toThrow(message);
+  });
+});
+
+describe("summon relative to the player", () => {
+  it("uses execute at the player with relative coordinates", () => {
+    expect(
+      setupCommands("AgentBot", { summon: [{ entity: "zombie", offset: { x: 4, y: 0, z: -1 } }] }),
+    ).toEqual(['execute at AgentBot run summon minecraft:zombie ~4 ~0 ~-1 {Tags:["scenario"]}']);
   });
 });
 

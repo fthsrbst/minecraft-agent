@@ -11,6 +11,7 @@ import { parseObserveOptions, parseVisibility } from "./bridge/observation.js";
 import { DEFAULT_TIMEOUT_MS, SkillBroker } from "./skills/broker.js";
 import { createPrimitives, SKILL_API } from "./skills/primitives.js";
 import { checkSkillSource, syntaxProblem } from "./skills/static-check.js";
+import { ReflexEngine } from "./reflexes/engine.js";
 import { loadBotConfig } from "./bot-config.js";
 import {
   ErrorCode,
@@ -61,6 +62,29 @@ const skills = new SkillBroker(
   emit,
 );
 
+// L0 reflexes (P3.1): on by default; MC_REFLEXES=off disables them (e.g. for scripted tests).
+let reflexes = null as ReflexEngine | null;
+const reflexesEnabled = process.env.MC_REFLEXES !== "off";
+runtime.onReady((bot) => {
+  reflexes = new ReflexEngine(bot, {
+    interruptWork: (reason) => {
+      const skill = skills.cancel(undefined, `interrupted by ${reason}`);
+      const action = runtime.interrupt();
+      return skill || action;
+    },
+    working: () => skills.runningId !== null || runtime.busy,
+    emit,
+  });
+  reflexes.setEnabled(reflexesEnabled);
+});
+
+/** An emergency reflex owns the bot until it is done (decision 13: safety first). */
+function requireNoReflex(): void {
+  if (reflexes?.busy === true) {
+    throw new RpcError(ErrorCode.NotReady, "A reflex is handling an emergency; retry shortly.");
+  }
+}
+
 /** A skill owns the bot's controls while it runs; single actions wait until it is done. */
 function requireNoSkill(): void {
   const running = skills.runningId;
@@ -97,6 +121,8 @@ const handlers = new Map<string, Handler>([
           "skill.run",
           "skill.check",
           "skill.cancel",
+          "reflexes.set",
+          "status",
         ],
         primitives: ACT_PRIMITIVES,
         skillApi: SKILL_API,
@@ -121,6 +147,7 @@ const handlers = new Map<string, Handler>([
   [
     "act",
     (params) => {
+      requireNoReflex();
       requireNoSkill();
       return runtime.act(parseAction(params));
     },
@@ -148,10 +175,29 @@ const handlers = new Map<string, Handler>([
       }
       // Fail before starting a process when the bot is not there to act.
       runtime.assertReady();
+      requireNoReflex();
       if (runtime.busy) {
         throw new RpcError(ErrorCode.NotReady, "An action is running; wait for it or interrupt.");
       }
       return { runId: skills.start(code, args, timeoutMs) };
+    },
+  ],
+  [
+    "status",
+    () => ({
+      reflexBusy: reflexes?.busy ?? false,
+      skillRunning: skills.runningId,
+      acting: runtime.busy,
+    }),
+  ],
+  [
+    "reflexes.set",
+    (params) => {
+      if (typeof params.enabled !== "boolean") {
+        throw new RpcError(ErrorCode.InvalidParams, "reflexes.set: `enabled` must be a boolean.");
+      }
+      reflexes?.setEnabled(params.enabled);
+      return { enabled: params.enabled };
     },
   ],
   [
