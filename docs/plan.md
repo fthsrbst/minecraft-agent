@@ -129,10 +129,10 @@ end to end. Depth (sandbox hardening, statistics, L3 fine-tuning, voice, Doom) m
 
 | ID | Work item | Status |
 |---|---|---|
-| P3.1 | L0 reflexes | in review (#43) |
-| P3.2 | Commands, autonomy flag, persona | in review (#44) |
-| P3.3 | Places memory | in review (#44) |
-| P3.4 | L1: one Jev decision point | in review (#45) |
+| P3.1 | L0 reflexes | in review (#43; round 4 fixes #47) |
+| P3.2 | Commands, autonomy flag, persona | in review (#44; round 4 fixes #47) |
+| P3.3 | Places memory | in review (#44; round 4 fixes #47) |
+| P3.4 | L1: one Jev decision point | in review (#45; round 4 fixes #47) |
 
 ### P3.1 L0 reflexes
 - **Deliverables:** event-driven reflexes in the plugin (flee or fight a nearby hostile; eat when hungry) that interrupt the current skill and report it to the core.
@@ -161,7 +161,7 @@ end to end. Depth (sandbox hardening, statistics, L3 fine-tuning, voice, Doom) m
 | ID | Work item | Status |
 |---|---|---|
 | P4.1 | Record a skill v1 | todo |
-| P4.2 | Evaluation runner and 20+ tests | todo |
+| P4.2 | Evaluation runner and 20+ tests | in review (#46; pilot in #47) |
 
 ### P4.1 Record a skill v1
 - **Deliverables:** `#record start/stop`; the bot logs the player's block and inventory events plus `//` chat notes; L2 turns the recording into a skill + predicate; the skill is replayed in a fresh spot and verified.
