@@ -15,8 +15,7 @@ export type Visibility = "fair" | "full";
 
 export const DEFAULT_RADIUS = 16;
 export const MAX_RADIUS = 32;
-const ENTITY_RADIUS = 32;
-const MAX_BLOCK_TYPES = 40;
+const MAX_BLOCK_TYPES = 64;
 const MAX_ENTITIES = 30;
 // Blocks that never matter to a task and would drown the summary.
 const IGNORED_BLOCKS: ReadonlySet<string> = new Set(["air", "cave_air", "void_air"]);
@@ -84,24 +83,38 @@ export function summarizeBlocks(
 export const cellKey = (x: number, y: number, z: number): string =>
   `${String(x)},${String(y)},${String(z)}`;
 
+export interface OpenSpace {
+  /** Keys of the open cells (air, water, plants, leaves…) connected to the start. */
+  readonly open: ReadonlySet<string>;
+  /** Solid cells that touch the open space: exactly what can be seen from it. */
+  readonly boundary: readonly Position[];
+  readonly boundaryKeys: ReadonlySet<string>;
+  /** True when the cell budget ran out before the radius was covered. */
+  readonly truncated: boolean;
+}
+
 /**
- * The open space (air, water, plants, leaves…) connected to `start`, within `radius`: a flood fill.
- * Fair mode (AGENTS.md decision 15) reports only what touches this space, so ore in a sealed cave
- * or a mob behind a wall stays hidden even though air surrounds it.
+ * Flood fill of the open space connected to `start`, within `radius`. Fair mode (AGENTS.md
+ * decision 15) reports only the solid cells on its boundary, so ore in a sealed cave or a mob
+ * behind a wall stays hidden even when air surrounds it. The boundary falls out of the fill for
+ * free: it is every neighbour the fill refused because it was not open.
  */
 export function floodOpenSpace(
   start: Position,
   radius: number,
   isOpen: (x: number, y: number, z: number) => boolean,
   maxCells = MAX_OPEN_CELLS,
-): Set<string> {
+): OpenSpace {
   const open = new Set<string>();
+  const boundaryKeys = new Set<string>();
+  const boundary: Position[] = [];
   if (!isOpen(start.x, start.y, start.z)) {
-    return open;
+    return { open, boundary, boundaryKeys, truncated: false };
   }
   const queue: Position[] = [start];
   open.add(cellKey(start.x, start.y, start.z));
-  for (let head = 0; head < queue.length && open.size < maxCells; head++) {
+  let head = 0;
+  for (; head < queue.length && open.size < maxCells; head++) {
     const cell = queue[head];
     if (cell === undefined) {
       break;
@@ -111,25 +124,23 @@ export function floodOpenSpace(
       const y = cell.y + dy;
       const z = cell.z + dz;
       const key = cellKey(x, y, z);
-      if (open.has(key) || distance({ x, y, z }, start) > radius || !isOpen(x, y, z)) {
+      if (open.has(key) || boundaryKeys.has(key) || distance({ x, y, z }, start) > radius) {
         continue;
       }
-      open.add(key);
-      queue.push({ x, y, z });
+      if (isOpen(x, y, z)) {
+        open.add(key);
+        queue.push({ x, y, z });
+      } else {
+        boundaryKeys.add(key);
+        boundary.push({ x, y, z });
+      }
     }
   }
-  return open;
-}
-
-/** A solid block is visible when one of its faces touches the open space. */
-export function touchesOpenSpace(position: Position, open: ReadonlySet<string>): boolean {
-  return NEIGHBOURS.some(([dx, dy, dz]) =>
-    open.has(cellKey(position.x + dx, position.y + dy, position.z + dz)),
-  );
+  return { open, boundary, boundaryKeys, truncated: head < queue.length };
 }
 
 /** The open space around the bot's eyes, as the game sees it. */
-export function visibleSpace(bot: Bot, radius: number): Set<string> {
+export function visibleSpace(bot: Bot, radius: number): OpenSpace {
   const eyes = bot.entity.position.floored().offset(0, 1, 0);
   return floodOpenSpace({ x: eyes.x, y: eyes.y, z: eyes.z }, radius, (x, y, z) => {
     const block = bot.blockAt(new Vec3(x, y, z));
@@ -148,51 +159,68 @@ export function parseVisibility(value: string | undefined): Visibility {
   throw new Error(`MC_VISIBILITY=${value} is not valid; use "fair" or "full".`);
 }
 
-function nearbyBlocks(bot: Bot, radius: number, visibility: Visibility): JsonObject[] {
-  const origin = bot.entity.position;
-  const positions = bot.findBlocks({
-    matching: (block) => !IGNORED_BLOCKS.has(block.name),
-    maxDistance: radius,
-    count: 50_000,
-  });
-  const open = visibility === "fair" ? visibleSpace(bot, radius + 1) : null;
-  const sightings: BlockSighting[] = [];
-  for (const position of positions) {
-    const block = bot.blockAt(position);
-    if (block === null) {
-      continue;
-    }
-    if (
-      open !== null &&
-      !open.has(cellKey(position.x, position.y, position.z)) &&
-      !touchesOpenSpace(position, open)
-    ) {
-      continue;
-    }
-    sightings.push({ name: block.name, position: { x: position.x, y: position.y, z: position.z } });
-  }
-  return summarizeBlocks(sightings, origin);
+interface Nearby {
+  readonly blocks: JsonObject[];
+  readonly entities: JsonObject[];
+  /** Some cells in range were not examined (cell budget); counts are lower bounds. */
+  readonly truncated: boolean;
 }
 
-function nearbyEntities(bot: Bot, visibility: Visibility): JsonObject[] {
+function sphereVolume(radius: number): number {
+  return Math.ceil((4 / 3) * Math.PI * (radius + 1) ** 3);
+}
+
+function nearby(bot: Bot, radius: number, visibility: Visibility): Nearby {
   const origin = bot.entity.position;
-  // Fair mode: an entity is seen when the cell it stands in (or its head) is in the open space.
-  const open = visibility === "fair" ? visibleSpace(bot, ENTITY_RADIUS) : null;
-  const seen = (position: Vec3): boolean => {
-    if (open === null) {
-      return true;
+  const sightings: BlockSighting[] = [];
+  let truncated = false;
+  let canSee: (position: Vec3) => boolean = () => true;
+
+  if (visibility === "fair") {
+    const space = visibleSpace(bot, radius + 1);
+    truncated = space.truncated;
+    for (const position of space.boundary) {
+      const block = bot.blockAt(new Vec3(position.x, position.y, position.z));
+      if (
+        block !== null &&
+        !IGNORED_BLOCKS.has(block.name) &&
+        distance(position, origin) <= radius
+      ) {
+        sightings.push({ name: block.name, position });
+      }
     }
-    const cell = position.floored();
-    return (
-      open.has(cellKey(cell.x, cell.y, cell.z)) || open.has(cellKey(cell.x, cell.y + 1, cell.z))
-    );
-  };
-  return Object.values(bot.entities)
+    // An entity is seen when the cell it stands in (or its head) is in the open space.
+    canSee = (position) => {
+      const cell = position.floored();
+      return (
+        space.open.has(cellKey(cell.x, cell.y, cell.z)) ||
+        space.open.has(cellKey(cell.x, cell.y + 1, cell.z))
+      );
+    };
+  } else {
+    // Every block in the sphere can match, so ask for that many: no silent cap.
+    const positions = bot.findBlocks({
+      matching: (block) => !IGNORED_BLOCKS.has(block.name),
+      maxDistance: radius,
+      count: sphereVolume(radius),
+    });
+    for (const position of positions) {
+      const block = bot.blockAt(position);
+      if (block !== null) {
+        sightings.push({
+          name: block.name,
+          position: { x: position.x, y: position.y, z: position.z },
+        });
+      }
+    }
+  }
+
+  const entities = Object.values(bot.entities)
     .filter(
       (entity) =>
         entity !== bot.entity &&
-        entity.position.distanceTo(origin) <= ENTITY_RADIUS &&
-        seen(entity.position),
+        entity.position.distanceTo(origin) <= radius &&
+        canSee(entity.position),
     )
     .map((entity) => {
       const item = entity.name === "item" ? entity.getDroppedItem() : null;
@@ -211,6 +239,8 @@ function nearbyEntities(bot: Bot, visibility: Visibility): JsonObject[] {
     })
     .sort((a, b) => a.distance - b.distance)
     .slice(0, MAX_ENTITIES);
+
+  return { blocks: summarizeBlocks(sightings, origin), entities, truncated };
 }
 
 function equipment(bot: Bot): JsonObject {
@@ -249,6 +279,15 @@ export interface ObserveOptions {
   readonly visibility: Visibility;
 }
 
+function nearbyFields(bot: Bot, options: ObserveOptions): JsonObject {
+  const found = nearby(bot, options.radius, options.visibility);
+  return {
+    nearbyBlocks: found.blocks,
+    nearbyEntities: found.entities,
+    ...(found.truncated ? { nearbyTruncated: true } : {}),
+  };
+}
+
 export function buildObservation(bot: Bot, options: ObserveOptions): JsonObject {
   const { x, y, z } = bot.entity.position;
   const below = bot.blockAt(new Vec3(x, y - 0.5, z));
@@ -269,11 +308,6 @@ export function buildObservation(bot: Bot, options: ObserveOptions): JsonObject 
     inventory: bot.inventory.slots.flatMap((item) =>
       item === null ? [] : [{ name: item.name, count: item.count }],
     ),
-    ...(options.nearby
-      ? {
-          nearbyBlocks: nearbyBlocks(bot, options.radius, options.visibility),
-          nearbyEntities: nearbyEntities(bot, options.visibility),
-        }
-      : {}),
+    ...(options.nearby ? nearbyFields(bot, options) : {}),
   };
 }

@@ -13,7 +13,7 @@ import { parseAction } from "../bridge/actions.js";
 import {
   buildObservation,
   parseObserveOptions,
-  touchesOpenSpace,
+  cellKey,
   type Visibility,
   visibleSpace,
 } from "../bridge/observation.js";
@@ -24,6 +24,8 @@ const { goals } = pathfinderModule;
 
 const GOTO_TIMEOUT_MS = 60_000;
 const COLLECT_TIMEOUT_MS = 120_000;
+const PER_BLOCK_TIMEOUT_MS = 30_000;
+const MAX_COLLECT_FAILURES = 5;
 const SEARCH_RADIUS = 64;
 // In fair mode the search is limited to what the bot can see, which a flood fill bounds anyway.
 const FAIR_SEARCH_RADIUS = 32;
@@ -31,6 +33,7 @@ const TABLE_RADIUS = 32;
 const MAX_COLLECT = 64;
 const MAX_CRAFT = 64;
 const MAX_WAIT_MS = 10_000;
+const CHAT_SPACING_MS = 1_500;
 // The pathfinder reports "stuck" when the bot does not progress; a few in a row means give up.
 const MAX_STUCK = 4;
 
@@ -127,6 +130,30 @@ function inventoryCounts(bot: Bot): Record<string, number> {
   return counts;
 }
 
+/**
+ * Waits until the inventory has had no slot updates for `quietMs` (at most `maxMs`). Crafting and
+ * placing change slots in several server round trips; acting on a half-updated inventory makes
+ * the next craft fail or click the wrong slot (seen live: an oak button instead of sticks).
+ */
+function inventorySettled(bot: Bot, quietMs = 250, maxMs = 3_000): Promise<void> {
+  return new Promise((resolve) => {
+    let quiet: NodeJS.Timeout | undefined;
+    const done = (): void => {
+      clearTimeout(quiet);
+      clearTimeout(limit);
+      bot.inventory.removeListener("updateSlot", onUpdate);
+      resolve();
+    };
+    const onUpdate = (): void => {
+      clearTimeout(quiet);
+      quiet = setTimeout(done, quietMs);
+    };
+    const limit = setTimeout(done, maxMs);
+    bot.inventory.on("updateSlot", onUpdate);
+    quiet = setTimeout(done, quietMs);
+  });
+}
+
 function gained(before: Record<string, number>, after: Record<string, number>): JsonObject {
   const delta: JsonObject = {};
   for (const [name, count] of Object.entries(after)) {
@@ -178,7 +205,11 @@ async function goNear(
         `goTo got stuck ${String(stuck)} times near ${x.toFixed(1)}, ${z.toFixed(1)}`,
       );
     }
-    throw error;
+    if (error instanceof PrimitiveError) {
+      throw error;
+    }
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new PrimitiveError(`no path to ${target.toString()}: ${reason}`);
   } finally {
     bot.removeListener("path_reset", onReset);
   }
@@ -194,6 +225,10 @@ export const REPLACEABLE: ReadonlySet<string> = new Set([
   "large_fern",
   "leaf_litter",
   "dead_bush",
+  "bush",
+  "firefly_bush",
+  "short_dry_grass",
+  "tall_dry_grass",
   "snow",
 ]);
 
@@ -215,8 +250,8 @@ function canPlaceAt(bot: Bot, target: Vec3): boolean {
 function findPlaceSpot(bot: Bot): Vec3 | null {
   const feet = bot.entity.position.floored();
   const spots: Vec3[] = [];
-  for (let dx = -3; dx <= 3; dx++) {
-    for (let dz = -3; dz <= 3; dz++) {
+  for (let dx = -4; dx <= 4; dx++) {
+    for (let dz = -4; dz <= 4; dz++) {
       for (const dy of [0, -1, 1]) {
         spots.push(feet.offset(dx, dy, dz));
       }
@@ -259,41 +294,66 @@ export function createPrimitives(
     const count = requireInt(args, "count", 1, MAX_COLLECT, 1);
     const timeoutMs = requireInt(args, "timeoutMs", 1_000, COLLECT_TIMEOUT_MS, COLLECT_TIMEOUT_MS);
     throwIfAborted(signal);
-    const blockId = registry().blocksByName[block]?.id;
+    const blockId = registry().blocksByName[block]?.id ?? -1;
     // Fair mode: only blocks the bot could see count, or `collect` would be an x-ray
     // ("no diamond_ore within 64 blocks" tells where diamonds are not). Decision 15.
     const radius = visibility === "fair" ? FAIR_SEARCH_RADIUS : SEARCH_RADIUS;
-    const open = visibility === "fair" ? visibleSpace(bot, radius + 1) : null;
-    const targets = bot
-      .findBlocks({ matching: blockId ?? -1, maxDistance: radius, count: count * 8 })
-      .filter((pos) => open === null || touchesOpenSpace(pos, open))
-      .slice(0, count)
-      .flatMap((pos) => {
-        const found = bot.blockAt(pos);
-        return found === null ? [] : [found];
-      });
-    if (targets.length === 0) {
-      const where = open === null ? "" : " visible";
-      throw new PrimitiveError(`no${where} ${block} within ${String(radius)} blocks`);
-    }
+    const deadline = Date.now() + timeoutMs;
+    const skipped = new Set<string>();
+    const failures: string[] = [];
     const before = inventoryCounts(bot);
-    await bounded(
-      () => bot.collectBlock.collect(targets, { ignoreNoPath: true }),
-      signal,
-      timeoutMs,
-      "collect",
-      () => {
-        bot.collectBlock.cancelTask().catch(() => undefined);
-        bot.pathfinder.stop();
-      },
-    );
-    const got = gained(before, inventoryCounts(bot));
-    // collectblock skips blocks it cannot reach; nothing gained is a failure, not a success.
-    if (Object.keys(got).length === 0) {
-      throw new PrimitiveError(`collected nothing: the ${block} found could not be reached`);
+    let mined = 0;
+
+    // One block at a time, nearest first: a block that cannot be reached (or whose path takes
+    // too long to plan in a dense forest) is skipped instead of failing the whole collect.
+    while (mined < count && Date.now() < deadline && failures.length < MAX_COLLECT_FAILURES) {
+      const space = visibility === "fair" ? visibleSpace(bot, radius + 1) : null;
+      const next = bot
+        .findBlocks({ matching: blockId, maxDistance: radius, count: 64 })
+        .find((pos) => {
+          const key = cellKey(pos.x, pos.y, pos.z);
+          return !skipped.has(key) && (space === null || space.boundaryKeys.has(key));
+        });
+      const target = next === undefined ? null : bot.blockAt(next);
+      if (target === null) {
+        break;
+      }
+      try {
+        await bounded(
+          () => bot.collectBlock.collect(target),
+          signal,
+          Math.min(PER_BLOCK_TIMEOUT_MS, Math.max(1_000, deadline - Date.now())),
+          "collect",
+          () => {
+            bot.collectBlock.cancelTask().catch(() => undefined);
+            bot.pathfinder.stop();
+          },
+        );
+        mined += 1;
+      } catch (error) {
+        throwIfAborted(signal);
+        skipped.add(cellKey(target.position.x, target.position.y, target.position.z));
+        failures.push(error instanceof Error ? error.message : String(error));
+      }
     }
-    return { ok: true, requested: count, found: targets.length, gained: got };
+
+    await inventorySettled(bot);
+    const got = gained(before, inventoryCounts(bot));
+    if (mined === 0 || Object.keys(got).length === 0) {
+      const where = visibility === "fair" ? " visible" : "";
+      const why = failures.length === 0 ? `no${where} ${block} within ${String(radius)} blocks` : failures[0] ?? "";
+      throw new PrimitiveError(`collected no ${block}: ${why}`);
+    }
+    return {
+      ok: true,
+      complete: mined >= count,
+      requested: count,
+      mined,
+      gained: got,
+      ...(failures.length > 0 ? { skipped: failures.length } : {}),
+    };
   };
+
 
   const craft: Primitive = async (args, signal) => {
     const bot = getBot();
@@ -310,8 +370,12 @@ export function createPrimitives(
       const tableId = registry().blocksByName.crafting_table?.id ?? -1;
       table = bot.findBlock({ matching: tableId, maxDistance: TABLE_RADIUS });
       if (table === null) {
+        // Say which of the two it is: the LLM fixes them differently.
+        const smaller = bot.recipesFor(itemId, null, 1, null).length > 0;
         throw new PrimitiveError(
-          `cannot craft ${item}: missing ingredients, or it needs a crafting_table within ${String(TABLE_RADIUS)} blocks`,
+          smaller
+            ? `cannot craft ${String(count)} ${item}: not enough ingredients for that many`
+            : `cannot craft ${item}: missing ingredients, or it needs a crafting_table within ${String(TABLE_RADIUS)} blocks`,
         );
       }
       recipe = bot.recipesFor(itemId, null, count, table)[0];
@@ -323,16 +387,35 @@ export function createPrimitives(
       }
     }
     // `count` is the number of items wanted; one craft may yield several (e.g. 4 planks).
-    const times = Math.ceil(count / recipe.result.count);
+    const chosen = recipe;
+    const times = Math.ceil(count / chosen.result.count);
+    await inventorySettled(bot);
     const before = inventoryCounts(bot);
-    await bounded(
-      () => bot.craft(recipe, times, table ?? undefined),
-      signal,
-      30_000,
-      "craft",
-      () => undefined,
-    );
-    return { ok: true, gained: gained(before, inventoryCounts(bot)) };
+    const craftOnce = () =>
+      bounded(
+        () => bot.craft(chosen, times, table ?? undefined),
+        signal,
+        30_000,
+        "craft",
+        () => undefined,
+      );
+    try {
+      await craftOnce();
+    } catch (error) {
+      // Mineflayer's window bookkeeping can miss a slot update ("Event updateSlot:… did not
+      // fire"); the server state is fine, so one retry on a settled inventory recovers.
+      if (!(error instanceof Error) || !error.message.includes("did not fire")) {
+        throw error;
+      }
+      await inventorySettled(bot, 500);
+      await craftOnce();
+    }
+    await inventorySettled(bot);
+    const got = gained(before, inventoryCounts(bot));
+    if (!(item in got)) {
+      throw new PrimitiveError(`craft finished but no ${item} appeared in the inventory`);
+    }
+    return { ok: true, gained: got };
   };
 
   const equip: Primitive = async (args, signal) => {
@@ -358,7 +441,7 @@ export function createPrimitives(
       // No position given: the nearest spot on solid ground next to the bot.
       const free = findPlaceSpot(bot);
       if (free === null) {
-        throw new PrimitiveError("no free spot on solid ground within 3 blocks of the bot");
+        throw new PrimitiveError("no free spot on solid ground within 4 blocks of the bot");
       }
       target = free;
     } else {
@@ -385,7 +468,12 @@ export function createPrimitives(
       "place",
       () => undefined,
     );
-    return { ok: true, item, position: { x: target.x, y: target.y, z: target.z } };
+    await inventorySettled(bot);
+    const placed = bot.blockAt(target)?.name;
+    if (placed === undefined || REPLACEABLE.has(placed)) {
+      throw new PrimitiveError(`placing ${item} at ${target.toString()} did not take effect`);
+    }
+    return { ok: true, item, block: placed, position: { x: target.x, y: target.y, z: target.z } };
   };
 
   const observe: Primitive = (args, signal) => {
@@ -393,13 +481,26 @@ export function createPrimitives(
     return Promise.resolve(buildObservation(getBot(), parseObserveOptions(args, visibility)));
   };
 
-  const chat: Primitive = (args, signal) => {
+  // The server kicks for spam (about 10 quick lines); lines are spaced out instead.
+  let lastChat = 0;
+  const chat: Primitive = async (args, signal) => {
     throwIfAborted(signal);
     const action = parseAction({ primitive: "chat", args });
+    const waitMs = lastChat + CHAT_SPACING_MS - Date.now();
+    if (waitMs > 0) {
+      await bounded(
+        () => new Promise((resolve) => setTimeout(resolve, waitMs)),
+        signal,
+        waitMs + 1_000,
+        "chat",
+        () => undefined,
+      );
+    }
     if (action.primitive === "chat") {
       getBot().chat(action.text);
+      lastChat = Date.now();
     }
-    return Promise.resolve({ ok: true });
+    return { ok: true };
   };
 
   const wait: Primitive = (args, signal) => {
@@ -445,9 +546,9 @@ export const SKILL_API: JsonObject[] = [
   },
   {
     name: "bot.collect(block, count?)",
-    returns: "{ ok, requested, found, gained }",
+    returns: "{ ok, complete, requested, mined, gained, skipped? }",
     description:
-      "Find, mine and pick up up to count (≤ 64) blocks of a type; in fair mode only blocks in sight within 32 blocks. Uses the best tool; throws if nothing was gained.",
+      "Mine and pick up count (≤ 64) blocks of a type, nearest first, skipping unreachable ones; in fair mode only blocks in sight within 32 blocks. Returns complete=false if fewer were mined; throws if none.",
   },
   {
     name: "bot.craft(item, count?)",

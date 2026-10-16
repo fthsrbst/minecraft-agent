@@ -12,9 +12,6 @@ import { createContext, Script } from "node:vm";
 import type { JsonObject, JsonValue } from "../rpc/json-rpc.js";
 import type { FromExecutor, ToExecutor } from "./protocol.js";
 
-// Bounds the synchronous part of the code (e.g. a CPU loop before the first await). The broker's
-// timeout bounds the whole run.
-const SYNC_TIMEOUT_MS = 5_000;
 const MAX_LOG_LINES = 100;
 const MAX_LOG_LINE = 500;
 const MAX_RESULT_CHARS = 20_000;
@@ -117,7 +114,9 @@ async function run(code: string, args: JsonObject): Promise<void> {
   );
   try {
     const script = new Script(`(async () => {\n${code}\n})()`, { filename: "skill.js" });
-    finish(await script.runInContext(context, { timeout: SYNC_TIMEOUT_MS }));
+    // No vm timeout: the broker's deadline ends every run, sync loops included, with an honest
+    // "timeout" status (a vm timeout would report an ordinary error).
+    finish(await script.runInContext(context));
   } catch (error: unknown) {
     send({ type: "done", ok: false, error: describeError(error).slice(0, 2_000) });
   }
@@ -125,6 +124,12 @@ async function run(code: string, args: JsonObject): Promise<void> {
 
 // The broker is gone (plugin crashed or was killed): nobody can use the result, so stop. A CPU
 // loop blocks this handler; the CPU-time limit the broker sets (ulimit -t) ends that case.
+// A skill that forgets to await a failing primitive must not crash the executor; the run goes on
+// and the rejection is written to the run's log.
+process.on("unhandledRejection", (reason: unknown) => {
+  log("unhandled rejection:", describeError(reason));
+});
+
 process.on("disconnect", () => {
   process.exit(1);
 });

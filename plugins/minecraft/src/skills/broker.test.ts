@@ -241,4 +241,14 @@ describe("SkillBroker", () => {
     await new Promise((r) => setTimeout(r, 100));
     expect(calls).toBe(1);
   });
+
+  it("survives a forgotten await on a failing primitive", async () => {
+    const failing: Primitive = () => Promise.reject(new Error("no path"));
+    const { broker, done } = setup({ goTo: failing, wait: () => Promise.resolve(null) });
+    broker.start('void bot.goTo(1, 2, 3); await bot.wait(50); return "kept going";', {}, 10_000);
+    const result = await done();
+    expect(result.status).toBe("ok");
+    expect(result.result).toBe("kept going");
+    expect(result.logs).toEqual(["unhandled rejection: Error: no path"]);
+  });
 });

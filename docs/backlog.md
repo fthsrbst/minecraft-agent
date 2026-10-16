@@ -31,20 +31,13 @@ The `[P1.4]` tag is the work-item ID in `plan.md`.
 
 ## Open
 
-### [P2.3] Contract decisions before skill execution (review round 1)
-- **Status**: blocked
-- **Opened by**: claude-code · **Date**: 2026-10-16
-- **Done so far**: 19 review findings fixed in #36; the open design items are listed in [docs/reviews/2026-10-16-sonnet-round-1.md](reviews/2026-10-16-sonnet-round-1.md#open-not-fixed-in-36).
-- **Remaining**: decide (Fatih) whether to add a P2.2b contract step: primitive broker over IPC, asynchronous `runSkill` with cancel, richer observation (nearby blocks/entities, visibility), predicate extensions, task-run records and world reset; and whether to adopt the plan cuts suggested there.
-- **Where I was**: `docs/reviews/2026-10-16-sonnet-round-1.md`
-- **Blocker / unknowns**: Fatih's decision on the plan changes.
-- **Branch / PR**: #36
-
+_No unfinished work._
 
 ---
 
 ## Closed
 
+- **2026-10-16 · claude-code**: [P2.3] Contract decisions from review round 1 implemented on Fatih's decision: P2.2b (#37, #38), P2.3 (#39), review round 2 fixes (#40, `docs/reviews/2026-10-16-sonnet-round-2.md`). Plan cuts remain a proposal.
 - **2026-10-16 · claude-code**: [P2.1] Live LLM calls verified: Haiku 5.5 (32/78 tokens, $0.0000422, 1590 ms) and Sonnet 5.5 with server-side fallback (28/51 tokens, $0.000566, 1356 ms), both logged to telemetry (PR #34).
 - **2026-10-15 · claude-code**: Fatih revised decision 24: Claude writes the code, Fatih owns the architecture and reviews. PRs #29/#30 reopened for P1.1.
 - **2026-10-15 · claude-code**: Closed the agent-written P1.1 PRs (#29, #30); Fatih will write the prototype himself. `plan.md` rewritten as the narrowed prototype plan.

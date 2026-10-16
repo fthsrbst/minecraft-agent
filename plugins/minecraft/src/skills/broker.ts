@@ -153,7 +153,8 @@ export class SkillBroker {
     });
     child.on("exit", (code, signal) => {
       const tail = run.stderr.join("\n");
-      this.finish(run, "crashed", null, `executor exited (${String(code ?? signal)}). ${tail}`);
+      const hint = signal === "SIGABRT" || /heap out of memory/i.test(tail) ? " (out of memory)" : "";
+      this.finish(run, "crashed", null, `executor exited (${String(code ?? signal)})${hint}. ${tail}`);
     });
     child.on("error", (error) => {
       this.finish(run, "crashed", null, `executor error: ${error.message}`);

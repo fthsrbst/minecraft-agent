@@ -185,6 +185,8 @@ export class MinecraftRuntime {
         this.forwardEvents(bot);
         // Skill primitives navigate with the pathfinder and mine with collectblock (P2.3).
         bot.pathfinder.setMovements(new Movements(bot));
+        // The default 5 s planning budget fails in dense forest ("Took to long to decide path").
+        bot.pathfinder.thinkTimeout = 10_000;
         // Spawn arrives before the surrounding chunks; an observation taken now would see no blocks.
         // The wait is bounded so a slow server delays the handshake but never hangs it.
         void Promise.race([

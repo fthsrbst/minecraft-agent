@@ -90,6 +90,7 @@ end to end. Depth (sandbox hardening, statistics, L3 fine-tuning, voice, Doom) m
 | P2.2a | Review round 1 fixes ([review](reviews/2026-10-16-sonnet-round-1.md)) | in review (#36) |
 | P2.2b | Contract step: observation, world reset, run records | in review (#37, #38) |
 | P2.3 | Skill execution in the plugin | in review (#39) |
+| P2.3b | Review round 2 fixes ([review](reviews/2026-10-16-sonnet-round-2.md)) | in review (#40) |
 | P2.4 | The Voyager loop + skill library | todo |
 
 ### P2.1 Telemetry and LLM client
