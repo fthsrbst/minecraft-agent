@@ -21,3 +21,15 @@ Demo against a running game server:
 (cd ../plugins/minecraft && npm run build)
 uv run python -m agent_core.bridge_demo ../plugins/minecraft
 ```
+
+## LLM calls and telemetry
+
+`agent_core.llm.LlmClient` is the only way the core calls an LLM. It picks the model by role
+(`ModelRole.CODE` → Claude Sonnet 5.5, `ModelRole.TEXT` → Claude Haiku 5.5), enforces a timeout,
+and writes one JSON line per call (success or failure) through `agent_core.telemetry`: trace id,
+purpose, models, tokens, cost in USD, latency, request id. Prices live in `agent_core/llm/pricing.py`;
+an unknown model gets `cost_usd: null`, never a guess.
+
+```bash
+uv run --env-file ../.env python -m agent_core.llm_demo   # needs ANTHROPIC_API_KEY in ../.env
+```

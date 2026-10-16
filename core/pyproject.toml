@@ -5,7 +5,9 @@ description = "Game-independent core of the learning game agent."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.13,<3.14"
-dependencies = []
+dependencies = [
+    "anthropic>=1",
+]
 
 [dependency-groups]
 dev = [
