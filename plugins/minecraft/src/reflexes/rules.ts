@@ -43,7 +43,6 @@ export const DANGER_RADIUS = 8;
 // A creeper's fuse starts at 3 blocks; react earlier.
 export const CREEPER_RADIUS = 10;
 const LOW_HEALTH = 8;
-const UNARMED_MIN_HEALTH = 14;
 const PACK_SIZE = 3;
 const HUNGRY = 14;
 const STARVING = 6;
@@ -72,8 +71,10 @@ export function chooseReflex(state: ReflexState): ReflexChoice | null {
         reason: `${String(threats.length)} hostiles at once`,
       };
     }
-    if (!state.hasWeapon && state.health < UNARMED_MIN_HEALTH) {
-      return { kind: "flee", target: nearest, reason: "no weapon and not at full strength" };
+    // Measured live: bare hands do 1 damage and knockback keeps pushing the mob out of reach,
+    // so an unarmed fight with a zombie (20 health) takes longer than fleeing does.
+    if (!state.hasWeapon) {
+      return { kind: "flee", target: nearest, reason: "no weapon" };
     }
     return { kind: "fight", target: nearest, reason: `${nearest.name} within reach` };
   }

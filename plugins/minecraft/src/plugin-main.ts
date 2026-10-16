@@ -122,6 +122,7 @@ const handlers = new Map<string, Handler>([
           "skill.check",
           "skill.cancel",
           "reflexes.set",
+          "status",
         ],
         primitives: ACT_PRIMITIVES,
         skillApi: SKILL_API,
@@ -180,6 +181,14 @@ const handlers = new Map<string, Handler>([
       }
       return { runId: skills.start(code, args, timeoutMs) };
     },
+  ],
+  [
+    "status",
+    () => ({
+      reflexBusy: reflexes?.busy ?? false,
+      skillRunning: skills.runningId,
+      acting: runtime.busy,
+    }),
   ],
   [
     "reflexes.set",

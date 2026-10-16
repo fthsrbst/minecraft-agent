@@ -1,6 +1,27 @@
 {
   "id": "zombie-nearby",
-  "description": "A zombie appears 5 blocks from the bot (used mid-task to trigger the L0 reflex).",
-  "setup": { "summon": [{ "entity": "zombie", "offset": { "x": 5, "y": 0, "z": 0 } }] },
-  "predicate": { "type": "compare", "path": "health", "op": ">", "value": 0 }
+  "description": "The bot gets a stone sword and a zombie appears 5 blocks away (mid-task): the L0 reflex must interrupt and fight.",
+  "setup": {
+    "give": [
+      {
+        "item": "stone_sword"
+      }
+    ],
+    "summon": [
+      {
+        "entity": "zombie",
+        "offset": {
+          "x": 5,
+          "y": 0,
+          "z": 0
+        }
+      }
+    ]
+  },
+  "predicate": {
+    "type": "compare",
+    "path": "health",
+    "op": ">",
+    "value": 0
+  }
 }

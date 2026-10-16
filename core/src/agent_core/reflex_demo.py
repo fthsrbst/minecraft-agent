@@ -25,6 +25,17 @@ TELEMETRY_PATH = Path("runs/telemetry/reflex-demo.jsonl")
 REFLEX_WAIT_S = 20.0
 
 
+async def reflex_idle(bot: PluginClient, within_s: float = 30.0) -> None:
+    """Waits until no reflex is busy (a fight from the previous run may still be ending)."""
+    deadline = asyncio.get_running_loop().time() + within_s
+    while asyncio.get_running_loop().time() < deadline:
+        status = await bot.request("status")
+        if not (isinstance(status, dict) and status.get("reflexBusy")):
+            return
+        await asyncio.sleep(0.5)
+    raise TimeoutError("a reflex stayed busy for 30 s")
+
+
 async def one_run(
     bot: PluginClient,
     scenario_plugin: PluginClient,
@@ -35,6 +46,7 @@ async def one_run(
 ) -> tuple[bool, float | None, JsonObject]:
     player = (await bot.observe({"nearby": False})).get("username")
     await scenario_plugin.request("scenario.reset", {**scenario.reset, "player": player})
+    await reflex_idle(bot)
     reflex = bot.expect_event(lambda event: event.get("type") == "reflex")
     skill = asyncio.create_task(run_skill(bot, code, {"seconds": 60}, timeout_s=90))
     try:

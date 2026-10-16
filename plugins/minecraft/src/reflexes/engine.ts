@@ -18,8 +18,9 @@ const { goals } = pathfinderModule;
 const WATCH_RADIUS = 16;
 const SAFE_DISTANCE = 16;
 const FLEE_MAX_MS = 8_000;
-const FIGHT_MAX_MS = 15_000;
-const ATTACK_REACH = 3;
+const FIGHT_MAX_MS = 30_000;
+// Feet-to-feet distance; the game's reach (about 3 blocks from the eyes to the hitbox) allows this.
+const ATTACK_REACH = 3.5;
 // Vanilla attack cooldowns: swords recharge in 0.625 s, axes in about 1 s, fists in 0.25 s.
 const COOLDOWN_MS: Readonly<Record<string, number>> = { sword: 625, axe: 1_000 };
 const FIST_COOLDOWN_MS = 250;

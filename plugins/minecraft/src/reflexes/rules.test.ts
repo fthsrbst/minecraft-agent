@@ -42,13 +42,11 @@ describe("chooseReflex", () => {
     expect(chooseReflex({ ...calm, threats })).toMatchObject({ kind: "flee" });
   });
 
-  it("fights unarmed only at full strength", () => {
+  it("never fights unarmed", () => {
     expect(chooseReflex({ ...calm, hasWeapon: false, threats: [zombie(3)] })).toMatchObject({
-      kind: "fight",
+      kind: "flee",
+      reason: "no weapon",
     });
-    expect(
-      chooseReflex({ ...calm, hasWeapon: false, health: 12, threats: [zombie(3)] }),
-    ).toMatchObject({ kind: "flee" });
   });
 
   it("targets the nearest threat", () => {
