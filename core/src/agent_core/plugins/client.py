@@ -67,10 +67,17 @@ class PluginClient:
         ]
 
     @classmethod
-    async def start(cls, plugin_dir: Path, *, env: Mapping[str, str] | None = None) -> Self:
+    async def start(
+        cls,
+        plugin_dir: Path,
+        *,
+        component: str | None = None,
+        env: Mapping[str, str] | None = None,
+    ) -> Self:
+        """Starts the plugin's main process, or one of its named `components`."""
         manifest = load_manifest(plugin_dir)
         process = await asyncio.create_subprocess_exec(
-            *manifest.command,
+            *manifest.command_for(component),
             cwd=manifest.directory,
             env=dict(os.environ if env is None else env),
             stdin=asyncio.subprocess.PIPE,

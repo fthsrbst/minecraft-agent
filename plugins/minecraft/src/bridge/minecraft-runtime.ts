@@ -36,6 +36,7 @@ export class MinecraftRuntime {
     const bot = this.requireBot();
     const { x, y, z } = bot.entity.position;
     return {
+      username: bot.username,
       position: { x: round(x), y: round(y), z: round(z) },
       yaw: round(bot.entity.yaw),
       dimension: bot.game.dimension,
