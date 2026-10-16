@@ -92,6 +92,7 @@ end to end. Depth (sandbox hardening, statistics, L3 fine-tuning, voice, Doom) m
 | P2.3 | Skill execution in the plugin | in review (#39) |
 | P2.3b | Review round 2 fixes ([review](reviews/2026-10-16-sonnet-round-2.md)) | in review (#40) |
 | P2.4 | The Voyager loop + skill library | in review (#41) |
+| P2.4b | Review round 3 fixes ([review](reviews/2026-10-16-sonnet-round-3.md)) | in review (#42) |
 
 ### P2.1 Telemetry and LLM client
 - **Deliverables:** an `LlmClient` (Anthropic: Sonnet 5.5 for code, Haiku 5.5 for text) with timeout and error messages; every call logged as JSONL (model, tokens, cost, latency, trace id); keys only from `.env`.
@@ -128,10 +129,10 @@ end to end. Depth (sandbox hardening, statistics, L3 fine-tuning, voice, Doom) m
 
 | ID | Work item | Status |
 |---|---|---|
-| P3.1 | L0 reflexes | todo |
-| P3.2 | Commands, autonomy flag, persona | todo |
-| P3.3 | Places memory | todo |
-| P3.4 | L1: one Jev decision point | todo |
+| P3.1 | L0 reflexes | in review (#43) |
+| P3.2 | Commands, autonomy flag, persona | in review (#44) |
+| P3.3 | Places memory | in review (#44) |
+| P3.4 | L1: one Jev decision point | in review (#45) |
 
 ### P3.1 L0 reflexes
 - **Deliverables:** event-driven reflexes in the plugin (flee or fight a nearby hostile; eat when hungry) that interrupt the current skill and report it to the core.
