@@ -266,6 +266,60 @@ export function resetCommands(player: string, spawn?: JsonValue): string[] {
   ];
 }
 
+// Replay arenas (P4.1): far from spawn and from each other, high enough to avoid any terrain.
+const ARENA_START = 2_000;
+const ARENA_SPACING = 48;
+const ARENA_FLOOR_Y = 99;
+const ARENA_RADIUS = 8;
+const ARENA_HEIGHT = 9;
+const MAX_ARENAS = 1_000;
+// Minecraft's /tp yaw (degrees): 0 looks south, 90 west, 180 north, -90 east.
+const ARENA_YAW: Readonly<Record<string, number>> = { south: 0, west: 90, north: 180, east: -90 };
+
+export interface Arena {
+  readonly commands: string[];
+  readonly origin: BlockPosition;
+  readonly facing: string;
+}
+
+/**
+ * A fresh, flat, empty spot for replaying a demonstrated build: a stone floor with open air above,
+ * the player in the middle facing `facing`, holding exactly `give`. Each `index` is its own spot,
+ * so an earlier replay can never satisfy a later check.
+ */
+export function arenaCommands(
+  player: string,
+  index: JsonValue | undefined,
+  facing: JsonValue | undefined,
+  give: JsonValue | undefined,
+): Arena {
+  if (typeof index !== "number" || !Number.isInteger(index) || index < 0 || index >= MAX_ARENAS) {
+    throw invalid(`\`index\` must be an integer from 0 to ${String(MAX_ARENAS - 1)}.`);
+  }
+  // By default the replays turn through all four directions, so a build is checked turned.
+  const turn = facing ?? (["north", "east", "south", "west"] as const)[index % 4];
+  if (typeof turn !== "string" || !Object.hasOwn(ARENA_YAW, turn)) {
+    throw invalid("`facing` must be north, east, south or west.");
+  }
+  const cx = ARENA_START + index * ARENA_SPACING;
+  const cz = ARENA_START;
+  const y = ARENA_FLOOR_Y;
+  const r = ARENA_RADIUS;
+  const area = (dy0: number, dy1: number, block: string): string =>
+    `fill ${String(cx - r)} ${String(y + dy0)} ${String(cz - r)} ${String(cx + r)} ${String(y + dy1)} ${String(cz + r)} minecraft:${block}`;
+  return {
+    commands: [
+      `clear ${player}`,
+      area(0, 0, "stone"),
+      area(1, ARENA_HEIGHT, "air"),
+      `tp ${player} ${String(cx)}.5 ${String(y + 1)} ${String(cz)}.5 ${String(ARENA_YAW[turn] ?? 0)} 0`,
+      ...giveCommands(player, give),
+    ],
+    origin: { x: cx, y: y + 1, z: cz },
+    facing: turn,
+  };
+}
+
 // Replies that mean the command did not do what was asked. Minecraft answers over RCON with text,
 // not status codes, so these are matched on the message.
 const FAILURE_REPLIES = [

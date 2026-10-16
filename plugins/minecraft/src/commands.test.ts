@@ -14,6 +14,7 @@ describe("loadCommands", () => {
       "stop",
       "sethome",
       "places",
+      "record",
       "help",
     ]);
     expect(commands.find((c) => c.name === "goto")?.code).toContain("bot.goTo");

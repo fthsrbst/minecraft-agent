@@ -13,7 +13,13 @@ import {
   RpcError,
   serveLines,
 } from "./rpc/json-rpc.js";
-import { isFailureReply, parsePlayer, resetCommands, setupCommands } from "./scenario/commands.js";
+import {
+  arenaCommands,
+  isFailureReply,
+  parsePlayer,
+  resetCommands,
+  setupCommands,
+} from "./scenario/commands.js";
 import { RconClient, RconError } from "./scenario/rcon.js";
 import { freshWorld, parseSeed, type WorldConfig, WorldError } from "./scenario/world.js";
 
@@ -146,7 +152,13 @@ const handlers = new Map<string, Handler>([
         protocolVersion: manifest.protocolVersion,
         plugin: { id: manifest.id, version: manifest.version },
         component: "scenario",
-        methods: ["handshake", "scenario.setup", "scenario.reset", "scenario.world"],
+        methods: [
+          "handshake",
+          "scenario.setup",
+          "scenario.reset",
+          "scenario.world",
+          "scenario.arena",
+        ],
       };
     },
   ],
@@ -162,6 +174,19 @@ const handlers = new Map<string, Handler>([
   ],
   ["scenario.reset", (params) => run(resetCommands(parsePlayer(params.player), params.spawn))],
   ["scenario.world", (params) => switchWorld(params.seed)],
+  [
+    "scenario.arena",
+    async (params) => {
+      const arena = arenaCommands(
+        parsePlayer(params.player),
+        params.index,
+        params.facing,
+        params.give,
+      );
+      const result = await run(arena.commands);
+      return { ...result, origin: { ...arena.origin }, facing: arena.facing };
+    },
+  ],
 ]);
 
 const server = new JsonRpcServer(handlers, (line) => {

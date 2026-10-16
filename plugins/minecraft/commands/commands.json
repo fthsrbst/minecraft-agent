@@ -119,6 +119,31 @@
       ]
     },
     {
+      "name": "record",
+      "usage": "#record start | #record stop <name>",
+      "description": "Teach a build: start, build it while writing // notes, then stop and name it.",
+      "args": [
+        {
+          "name": "action",
+          "type": "word",
+          "default": "start"
+        },
+        {
+          "name": "name",
+          "type": "word",
+          "default": "build"
+        }
+      ],
+      "builtin": "record",
+      "keywords": [
+        "record",
+        "teach",
+        "demonstrate",
+        "learn",
+        "watch"
+      ]
+    },
+    {
       "name": "help",
       "usage": "#help",
       "description": "List the commands.",

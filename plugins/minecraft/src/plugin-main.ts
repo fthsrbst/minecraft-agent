@@ -13,6 +13,15 @@ import { createPrimitives, SKILL_API } from "./skills/primitives.js";
 import { checkSkillSource, syntaxProblem } from "./skills/static-check.js";
 import { ReflexEngine } from "./reflexes/engine.js";
 import { loadCommands } from "./commands.js";
+import { compile, compiledJson, skillCode } from "./recording/blueprint.js";
+import {
+  CheckInputError,
+  checkStructure,
+  parseBlueprint,
+  parseFacing,
+  parseOrigin,
+} from "./recording/check.js";
+import { RecordError, Recorder } from "./recording/recorder.js";
 import { loadBotConfig } from "./bot-config.js";
 import {
   ErrorCode,
@@ -63,12 +72,30 @@ const emit = (event: JsonObject): void => {
   if (event.type === "disconnected" || event.type === "death") {
     skills.cancel();
   }
+  if (event.type === "disconnected") {
+    recorder.abandon();
+  }
 };
 const runtime = new MinecraftRuntime(loadBotConfig(process.env), emit);
 const skills = new SkillBroker(
   createPrimitives(() => runtime.liveBot, visibility),
   emit,
 );
+
+// Record a skill v1 (P4.1): the bot watches a demonstrator.
+const recorder = new Recorder(() => runtime.liveBot);
+
+/** Recorder and checker errors are the caller's input problems, reported as such. */
+function asParamsError<T>(work: () => T): T {
+  try {
+    return work();
+  } catch (error: unknown) {
+    if (error instanceof RecordError || error instanceof CheckInputError) {
+      throw new RpcError(ErrorCode.InvalidParams, error.message);
+    }
+    throw error;
+  }
+}
 
 // L0 reflexes (P3.1): on by default; MC_REFLEXES=off disables them (e.g. for scripted tests).
 let reflexes = null as ReflexEngine | null;
@@ -131,6 +158,9 @@ const handlers = new Map<string, Handler>([
           "skill.cancel",
           "reflexes.set",
           "status",
+          "record.start",
+          "record.stop",
+          "record.check",
         ],
         primitives: ACT_PRIMITIVES,
         skillApi: SKILL_API,
@@ -228,6 +258,52 @@ const handlers = new Map<string, Handler>([
       const syntax = syntaxProblem(code);
       const all = syntax === null ? problems : [...problems, syntax];
       return all.length === 0 ? { ok: true } : { ok: false, problem: all.join("; ") };
+    },
+  ],
+  [
+    "record.start",
+    (params) => {
+      const { player } = params;
+      if (typeof player !== "string" || !/^\w{1,16}$/.test(player)) {
+        throw new RpcError(
+          ErrorCode.InvalidParams,
+          "record.start: `player` must be a player name.",
+        );
+      }
+      runtime.assertReady();
+      const { anchor, facing } = asParamsError(() => recorder.start(player));
+      return { recording: true, player, anchor: { ...anchor }, facing };
+    },
+  ],
+  [
+    "record.stop",
+    () => {
+      const recording = asParamsError(() => recorder.stop());
+      const registry = runtime.liveBot.registry;
+      const compiled = compile(recording, (name) => registry.itemsByName[name] !== undefined);
+      return {
+        recording: {
+          player: recording.player,
+          facing: recording.facing,
+          durationMs: recording.durationMs,
+          truncated: recording.truncated,
+          events: recording.events.map((event) => ({ ...event })),
+          notes: recording.notes.map((note) => ({ ...note })),
+        },
+        compiled: compiledJson(compiled, skillCode(compiled.blueprint, compiled.summary)),
+      };
+    },
+  ],
+  [
+    "record.check",
+    (params) => {
+      const { blueprint, origin, facing } = asParamsError(() => ({
+        blueprint: parseBlueprint(params.blueprint),
+        origin: parseOrigin(params.origin),
+        facing: parseFacing(params.facing),
+      }));
+      const result = checkStructure(runtime.liveBot, blueprint, origin, facing);
+      return { ...result, missing: [...result.missing] };
     },
   ],
   [

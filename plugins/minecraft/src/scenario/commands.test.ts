@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import type { JsonObject } from "../rpc/json-rpc.js";
-import { isFailureReply, parsePlayer, resetCommands, setupCommands } from "./commands.js";
+import {
+  arenaCommands,
+  isFailureReply,
+  parsePlayer,
+  resetCommands,
+  setupCommands,
+} from "./commands.js";
 
 describe("setupCommands", () => {
   it("builds commands in a fixed order", () => {
@@ -152,5 +158,24 @@ describe("isFailureReply", () => {
     expect(isFailureReply("No entity was found", "execute at A run kill @e[type=item]")).toBe(
       false,
     );
+  });
+});
+
+describe("arenaCommands", () => {
+  it("builds a separate flat spot per index, facing the given way", () => {
+    const first = arenaCommands("AgentBot", 0, "east", [{ item: "oak_planks", count: 9 }]);
+    const second = arenaCommands("AgentBot", 1, "north", []);
+    expect(first.origin).toEqual({ x: 2000, y: 100, z: 2000 });
+    expect(second.origin.x).toBe(2048);
+    expect(arenaCommands("AgentBot", 2, undefined, []).facing).toBe("south");
+    expect(first.commands).toContain("tp AgentBot 2000.5 100 2000.5 -90 0");
+    expect(first.commands.at(-1)).toBe("give AgentBot minecraft:oak_planks 9");
+    expect(first.commands[1]).toBe("fill 1992 99 1992 2008 99 2008 minecraft:stone");
+  });
+
+  it("refuses bad input", () => {
+    expect(() => arenaCommands("AgentBot", -1, "east", [])).toThrow(/index/);
+    expect(() => arenaCommands("AgentBot", 0, "up", [])).toThrow(/facing/);
+    expect(() => arenaCommands("AgentBot", 0, "east", [{ item: "nope" }])).toThrow(/unknown item/);
   });
 });

@@ -18,5 +18,5 @@
       ]
     }
   },
-  "capabilities": ["scenario"]
+  "capabilities": ["scenario", "record"]
 }
