@@ -33,7 +33,15 @@ from agent_core.library import SkillLibrary
 from agent_core.llm import LlmClient
 from agent_core.llm.anthropic_backend import AnthropicBackend
 from agent_core.memory.places import PlaceError, PlaceStore
-from agent_core.plugins import JsonObject, JsonValue, ManifestError, PluginClient, PluginError
+from agent_core.plugins import (
+    JsonObject,
+    JsonValue,
+    ManifestError,
+    PluginClient,
+    PluginError,
+    PluginRpcError,
+)
+from agent_core.recording.skill import NOTE_PREFIX, RecordingError, build_skill
 from agent_core.skills import SkillResult, run_skill
 from agent_core.telemetry import TelemetryRecorder, new_trace_id
 from agent_core.voyager.loop import PluginSession, VoyagerAgent
@@ -48,7 +56,9 @@ RATE_S = 3.0
 MAX_PARALLEL_LLM = 2
 # L1 acts only on very confident model choices, and never for commands that overwrite memory.
 L1_ACT_CONFIDENCE = 0.9
-L1_NEVER = frozenset({"remember-place"})
+# Starting a recording is the player's own act of teaching; a guess must never start one.
+L1_NEVER = frozenset({"remember-place", "record"})
+RECORDINGS_DIR = Path("runs/recordings")
 YES = frozenset({"yes", "y", "ok", "okay", "sure", "do it", "go", "yes please", "evet"})
 # Turkish answers too: "hay\\u0131r" is the Turkish "no" spelled with a dotless i.
 NO = frozenset({"no", "n", "nope", "don't", "hayir", "hay\u0131r"})
@@ -67,6 +77,10 @@ class BotPort(Protocol):
     async def run_skill(self, code: str, args: JsonObject, timeout_s: float) -> SkillResult: ...
 
     async def interrupt(self) -> None: ...
+
+    async def record_start(self, player: str) -> JsonObject: ...
+
+    async def record_stop(self) -> JsonObject: ...
 
 
 TaskRunner = Callable[[str], Awaitable[str]]
@@ -94,6 +108,8 @@ class AgentRuntime:
     l1_act: bool = False
     # A player's addressed messages cost LLM calls: at most one per `rate_s` seconds each.
     rate_s: float = RATE_S
+    recordings_dir: Path = RECORDINGS_DIR
+    _recording: str | None = field(default=None, init=False)  # the player being recorded
     _work: asyncio.Task[None] | None = field(default=None, init=False)
     _work_lock: asyncio.Lock = field(default_factory=asyncio.Lock, init=False)
     _question: tuple[str, asyncio.Future[bool]] | None = field(default=None, init=False)
@@ -117,6 +133,8 @@ class AgentRuntime:
             return
         if origin == "typed" and self._answer(sender, message):
             return
+        if message.lstrip().startswith(NOTE_PREFIX):
+            return  # narration for a recording (decision 11b), never a request
         try:
             invocation = parse_command(
                 message, self.vocabulary, sender=sender, places=self._place_position
@@ -188,6 +206,12 @@ class AgentRuntime:
             places = self.places.all(self.world)
             listed = ", ".join(f"{p.name} ({p.x:.0f} {p.y:.0f} {p.z:.0f})" for p in places)
             await self.say(f"Places: {listed}" if places else "No places yet. Try #sethome.")
+        elif spec.builtin == "record":
+            if origin != "typed":
+                await self.say(f"Type {self.vocabulary.prefix}record start yourself to teach me.")
+                return
+            action, name = invocation.args.get("action"), invocation.args.get("name")
+            await self._record(str(action), str(name), sender)
         elif spec.builtin == "help":
             # One line per command: a chat line holds about 250 characters.
             for line in self.vocabulary.help_lines():
@@ -204,6 +228,45 @@ class AgentRuntime:
             await self._start(lambda: self._run_command(spec.name, code, args))
         else:
             await self.say(f"I do not know how to do {spec.name} yet.")
+
+    async def _record(self, action: str, name: str, sender: str) -> None:
+        if action == "start":
+            if self._recording is not None:
+                await self.say(f"I am already watching {self._recording}.")
+                return
+            try:
+                await self.bot.record_start(sender)
+            except PluginError as error:
+                await self.say(f"Cannot record: {_reason(error)}")
+                return
+            self._recording = sender
+            await self.say(
+                f"Watching you, {sender}. Build it, explain with {NOTE_PREFIX} notes, then "
+                f"type {self.vocabulary.prefix}record stop <name>."
+            )
+        elif action == "stop":
+            if self._recording is None:
+                await self.say("I am not recording.")
+                return
+            if sender != self._recording:
+                await self.say(f"Only {self._recording} can stop this recording.")
+                return
+            self._recording = None
+            try:
+                stopped = await self.bot.record_stop()
+                skill = await build_skill(self.llm, stopped, name, new_trace_id())
+            except (PluginError, RecordingError) as error:
+                await self.say(f"Recording failed: {_reason(error)}")
+                return
+            skill.save(self.recordings_dir)
+            await self.say(
+                f"Learned {skill.card.name}: {skill.summary}. "
+                "It is a draft until replays verify it."
+            )
+            if skill.unsupported:
+                await self.say(f"Not captured: {'; '.join(skill.unsupported[:3])}")
+        else:
+            await self.say(f"Usage: {self.vocabulary.prefix}record start | stop <name>")
 
     async def task(self, goal: str, sender: str) -> None:
         if self.autonomy is Autonomy.CONSULT and not await self.ask(sender, f"Should I: {goal}?"):
@@ -377,6 +440,22 @@ class PluginBot:
 
     async def interrupt(self) -> None:
         await self.plugin.request("interrupt")
+
+    async def record_start(self, player: str) -> JsonObject:
+        return _reply(await self.plugin.request("record.start", {"player": player}), "record.start")
+
+    async def record_stop(self) -> JsonObject:
+        return _reply(await self.plugin.request("record.stop", timeout_s=30), "record.stop")
+
+
+def _reply(value: JsonValue, method: str) -> JsonObject:
+    if not isinstance(value, dict):
+        raise PluginError(f"{method} answered with a non-object")
+    return value
+
+
+def _reason(error: Exception) -> str:
+    return error.rpc_message if isinstance(error, PluginRpcError) else str(error)
 
 
 def _objects(value: JsonValue) -> list[JsonObject]:

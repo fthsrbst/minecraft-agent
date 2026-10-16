@@ -10,7 +10,7 @@ from agent_core.commands import Vocabulary
 from agent_core.intent import parse_intent, route
 from agent_core.llm import BackendResult, LlmClient, LlmRequest, Usage
 from agent_core.memory.places import PlaceStore
-from agent_core.plugins import JsonObject
+from agent_core.plugins import JsonObject, JsonValue
 from agent_core.skills import SkillResult
 from agent_core.telemetry import TelemetryRecorder
 
@@ -46,6 +46,16 @@ VOCABULARY = Vocabulary.from_handshake(
                 "args": [],
                 "builtin": "list-places",
             },
+            {
+                "name": "record",
+                "usage": "#record start | #record stop <name>",
+                "description": "teach",
+                "args": [
+                    {"name": "action", "type": "word", "default": "start"},
+                    {"name": "name", "type": "word", "default": "build"},
+                ],
+                "builtin": "record",
+            },
         ],
     }
 )
@@ -57,6 +67,8 @@ class FakeBot:
     skills: list[tuple[str, JsonObject]] = field(default_factory=list[tuple[str, JsonObject]])
     interrupts: int = 0
     skill_seconds: float = 0.0
+    recording: str | None = None
+    stopped: JsonObject = field(default_factory=dict[str, JsonValue])
 
     async def chat(self, text: str) -> None:
         self.said.append(text)
@@ -71,6 +83,13 @@ class FakeBot:
 
     async def interrupt(self) -> None:
         self.interrupts += 1
+
+    async def record_start(self, player: str) -> JsonObject:
+        self.recording = player
+        return {"recording": True}
+
+    async def record_stop(self) -> JsonObject:
+        return self.stopped
 
 
 @dataclass
@@ -110,6 +129,7 @@ def make(
         run_task,
         ask_timeout_s=0.2,
         rate_s=0.0,
+        recordings_dir=tmp_path / "recordings",
     )
     return runtime, bot, goals
 
@@ -352,3 +372,63 @@ def test_an_answer_may_name_the_bot(tmp_path: Path) -> None:
 
     asyncio.run(main())
     assert goals == ["Craft a chest"]
+
+
+STOPPED: JsonObject = {
+    "recording": {"player": "Fatih", "facing": "north", "notes": [{"t": 1200, "text": "a floor"}]},
+    "compiled": {
+        "blueprint": {"clear": [], "place": [{"a": 0, "b": 0, "c": 1, "block": "B", "item": "B"}]},
+        "materials": {"B": 1},
+        "unsupported": [],
+        "detours": 0,
+        "summary": "1 block(s) to place (1 B) in a 1x1x1 area",
+        "code": "return { ok: true };",
+    },
+}
+
+
+def card(name: str) -> str:
+    return (
+        "<card>"
+        + json.dumps(
+            {
+                "name": name,
+                "description": "Builds a floor.",
+                "when": "",
+                "rules": [],
+                "assumptions": [],
+            }
+        )
+        + "</card>"
+    )
+
+
+def test_record_start_notes_and_stop_save_a_draft_skill(tmp_path: Path) -> None:
+    runtime, bot, _ = make(tmp_path, [card("buildFloor")])
+    bot.stopped = STOPPED
+
+    async def main() -> None:
+        await runtime.on_chat("Fatih", "#record start")
+        await runtime.on_chat("Fatih", "// AgentBot this is a floor")  # a note, not a request
+        await runtime.on_chat("Fatih", "#record stop floor")
+
+    asyncio.run(main())
+    assert bot.recording == "Fatih"
+    assert bot.said[0].startswith("Watching you, Fatih.")
+    assert bot.said[1].startswith("Learned buildFloor: 1 block(s) to place")
+    saved = list((tmp_path / "recordings").glob("*.json"))
+    assert len(saved) == 1
+    assert json.loads(saved[0].read_text())["card"]["name"] == "buildFloor"
+
+
+def test_only_the_recorded_player_stops_and_a_guess_never_starts(tmp_path: Path) -> None:
+    runtime, bot, _ = make(tmp_path, [intent("command", "#record start")])
+
+    async def main() -> None:
+        await runtime.on_chat("Fatih", "AgentBot watch me build")  # routed by L2
+        await runtime.on_chat("Fatih", "#record start")
+        await runtime.on_chat("Eve", "#record stop")
+
+    asyncio.run(main())
+    assert bot.said[0] == "Type #record start yourself to teach me."
+    assert bot.said[-1] == "Only Fatih can stop this recording."
