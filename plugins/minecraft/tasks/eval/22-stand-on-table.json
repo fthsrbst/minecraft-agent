@@ -1,0 +1,11 @@
+{
+  "id": "22-stand-on-table",
+  "goal": "Place a crafting table and stand on top of it, starting with an empty inventory.",
+  "predicate": {
+    "type": "compare",
+    "path": "standingOn",
+    "op": "==",
+    "value": "crafting_table"
+  },
+  "timeoutS": 300
+}

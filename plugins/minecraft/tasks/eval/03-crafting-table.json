@@ -1,0 +1,10 @@
+{
+  "id": "03-crafting-table",
+  "goal": "Craft a crafting table, starting with an empty inventory.",
+  "predicate": {
+    "type": "has_item",
+    "item": "crafting_table",
+    "count": 1
+  },
+  "timeoutS": 180
+}

@@ -1,0 +1,10 @@
+{
+  "id": "10-chest",
+  "goal": "Craft a chest, starting with an empty inventory.",
+  "predicate": {
+    "type": "has_item",
+    "item": "chest",
+    "count": 1
+  },
+  "timeoutS": 240
+}

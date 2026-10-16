@@ -1,0 +1,18 @@
+{
+  "id": "21-bread",
+  "goal": "Craft bread. You start with 3 wheat.",
+  "predicate": {
+    "type": "has_item",
+    "item": "bread",
+    "count": 1
+  },
+  "timeoutS": 180,
+  "setup": {
+    "give": [
+      {
+        "item": "wheat",
+        "count": 3
+      }
+    ]
+  }
+}

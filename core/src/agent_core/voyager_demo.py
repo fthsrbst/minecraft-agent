@@ -17,15 +17,14 @@ import asyncio
 import sys
 from pathlib import Path
 
+from agent_core.evaluation.execute import RunPaths, execute_task
 from agent_core.library import LibraryError, SkillLibrary
-from agent_core.llm import DEFAULT_MODELS, LlmClient, LlmError, ModelRole
+from agent_core.llm import LlmClient, LlmError
 from agent_core.llm.anthropic_backend import AnthropicBackend
 from agent_core.plugins import JsonObject, JsonValue, ManifestError, PluginClient, PluginError
-from agent_core.runs import RunRecorder, TaskRun, TaskRunRecord
+from agent_core.runs import RunRecorder, TaskRunRecord
 from agent_core.telemetry import TelemetryRecorder
 from agent_core.verifier import Verdict
-from agent_core.voyager.loop import Attempt, PluginSession, VoyagerAgent
-from agent_core.voyager.prompts import PROMPT_VERSION
 from agent_core.voyager.task import Task, TaskError, load_task
 
 RUNS_PATH = Path("runs/voyager.jsonl")
@@ -34,37 +33,16 @@ ATTEMPTS_DIR = Path("runs/attempts")
 NO_LIBRARY_PATH = Path("runs/no-library.sqlite")
 
 
-def _objects(value: JsonValue) -> list[JsonObject]:
-    if not isinstance(value, list):
-        return []
-    return [item for item in value if isinstance(item, dict)]
-
-
 def _arm(args: argparse.Namespace) -> str:
     if args.no_library:
         return "no-library"
     return "frozen-library" if args.frozen else "voyager"
 
 
-def _attempt_note(run_id: str, attempt: Attempt) -> JsonObject:
-    """One attempt for the record; its code goes to a file so records stay small."""
-    code_file = None
-    if attempt.code is not None:
-        ATTEMPTS_DIR.mkdir(parents=True, exist_ok=True)
-        path = ATTEMPTS_DIR / f"{run_id}-{attempt.number}.js"
-        path.write_text(attempt.code, encoding="utf-8")
-        code_file = str(path)
-    return {
-        "number": attempt.number,
-        "skill": attempt.skill_name,
-        "status": attempt.status,
-        "verdict": attempt.verdict.value,
-        "problem": attempt.problem,
-        "seconds": attempt.duration_s,
-        "used": list(attempt.used_skills),
-        "clean_start": attempt.clean_start,
-        "code_file": code_file,
-    }
+def _objects(value: JsonValue) -> list[JsonObject]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict)]
 
 
 async def run_task(
@@ -76,65 +54,19 @@ async def run_task(
     recorder: RunRecorder,
 ) -> TaskRunRecord:
     arm = _arm(args)
-    run = TaskRun(
-        task_id=task.id,
+    return await execute_task(
+        args.plugin_dir,
+        task,
         arm=arm,
         seed=args.seed,
-        models={"code": DEFAULT_MODELS[ModelRole.CODE]},
-        library_snapshot=library.snapshot_id(),
+        library=library,
+        learn=arm == "voyager",
+        attempts=args.attempts,
+        llm=llm,
+        scenario=scenario,
+        recorder=recorder,
+        paths=RunPaths(RUNS_PATH, TELEMETRY_PATH, ATTEMPTS_DIR),
     )
-    try:
-        if args.seed is not None:
-            world = await scenario.request("scenario.world", {"seed": args.seed}, timeout_s=600)
-            world_id = world.get("worldInstanceId") if isinstance(world, dict) else None
-            run.world_instance_id = world_id if isinstance(world_id, str) else None
-        async with await PluginClient.start(args.plugin_dir) as bot:
-            hello = await bot.handshake()
-            visibility, guide = hello.get("visibility"), hello.get("skillGuide")
-            run.visibility = visibility if isinstance(visibility, str) else None
-            session = PluginSession(bot, scenario, task.reset, task.setup)
-            await session.reset()
-            agent = VoyagerAgent(
-                llm,
-                library,
-                _objects(hello.get("skillApi")),
-                guide if isinstance(guide, str) else "",
-                max_attempts=args.attempts,
-                learn=arm == "voyager",
-            )
-            outcome = await agent.solve(task, session, trace_id=run.trace_id)
-    except (PluginError, TimeoutError) as error:
-        # A broken run is still a run (no survivorship bias); the next task gets a fresh plugin.
-        record = run.finish(
-            Verdict.UNKNOWN,
-            telemetry_path=TELEMETRY_PATH,
-            attempts=0,
-            failure_reason=f"{type(error).__name__}: {error}",
-            notes={"prompt_version": PROMPT_VERSION},
-        )
-        recorder.record(record)
-        return record
-
-    record = run.finish(
-        outcome.verdict,
-        telemetry_path=TELEMETRY_PATH,
-        attempts=len(outcome.attempts),
-        failure_reason=outcome.reason,
-        final_observation=outcome.final_observation,
-        notes={
-            "prompt_version": PROMPT_VERSION,
-            "predicate": outcome.predicate,
-            "predicate_source": outcome.predicate_source,
-            # Runs that cannot count either way; left out of success rates.
-            "invalid": outcome.invalid,
-            "learned_skill": outcome.learned_skill,
-            "used_skills": list(outcome.used_skills),
-            "library_after": library.snapshot_id(),
-            "attempts": [_attempt_note(run.run_id, attempt) for attempt in outcome.attempts],
-        },
-    )
-    recorder.record(record)
-    return record
 
 
 async def run_all(args: argparse.Namespace) -> bool:

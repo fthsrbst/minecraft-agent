@@ -1,0 +1,10 @@
+{
+  "id": "14-dirt",
+  "goal": "Collect 8 dirt.",
+  "predicate": {
+    "type": "has_item",
+    "item": "dirt",
+    "count": 8
+  },
+  "timeoutS": 180
+}

@@ -1,0 +1,7 @@
+{
+  "id": "v1",
+  "description": "Main claim (decision 16): a library learned on learning seeds reduces time and LLM calls on unseen test seeds without lowering success. Frozen before the first test run (pre-registration, research.md 11.1).",
+  "tasks": "../tasks/eval/*.json",
+  "learning": { "seeds": [1001, 1002], "attempts": 3 },
+  "test": { "seeds": [2001, 2002, 2003], "arms": ["no-library", "frozen-library"], "attempts": 3 }
+}

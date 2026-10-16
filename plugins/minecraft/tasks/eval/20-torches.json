@@ -1,0 +1,17 @@
+{
+  "id": "20-torches",
+  "goal": "Craft 4 torches. You start with 1 coal.",
+  "predicate": {
+    "type": "has_item",
+    "item": "torch",
+    "count": 4
+  },
+  "timeoutS": 240,
+  "setup": {
+    "give": [
+      {
+        "item": "coal"
+      }
+    ]
+  }
+}

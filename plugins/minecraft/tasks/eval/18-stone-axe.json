@@ -1,0 +1,21 @@
+{
+  "id": "18-stone-axe",
+  "goal": "Craft a stone axe. You start with a wooden pickaxe and 2 sticks.",
+  "predicate": {
+    "type": "has_item",
+    "item": "stone_axe",
+    "count": 1
+  },
+  "timeoutS": 360,
+  "setup": {
+    "give": [
+      {
+        "item": "wooden_pickaxe"
+      },
+      {
+        "item": "stick",
+        "count": 2
+      }
+    ]
+  }
+}

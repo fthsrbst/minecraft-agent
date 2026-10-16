@@ -1,0 +1,55 @@
+{
+  "id": "01-logs",
+  "goal": "Collect 4 logs of any wood.",
+  "predicate": {
+    "type": "any",
+    "of": [
+      {
+        "type": "has_item",
+        "item": "oak_log",
+        "count": 4
+      },
+      {
+        "type": "has_item",
+        "item": "spruce_log",
+        "count": 4
+      },
+      {
+        "type": "has_item",
+        "item": "birch_log",
+        "count": 4
+      },
+      {
+        "type": "has_item",
+        "item": "jungle_log",
+        "count": 4
+      },
+      {
+        "type": "has_item",
+        "item": "acacia_log",
+        "count": 4
+      },
+      {
+        "type": "has_item",
+        "item": "dark_oak_log",
+        "count": 4
+      },
+      {
+        "type": "has_item",
+        "item": "mangrove_log",
+        "count": 4
+      },
+      {
+        "type": "has_item",
+        "item": "cherry_log",
+        "count": 4
+      },
+      {
+        "type": "has_item",
+        "item": "pale_oak_log",
+        "count": 4
+      }
+    ]
+  },
+  "timeoutS": 180
+}
