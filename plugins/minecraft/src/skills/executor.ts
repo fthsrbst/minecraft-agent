@@ -117,7 +117,11 @@ async function run(code: string, args: JsonObject): Promise<void> {
     const script = new Script(`(async () => {\n${code}\n})()`, { filename: "skill.js" });
     // No vm timeout: the broker's deadline ends every run, sync loops included, with an honest
     // "timeout" status (a vm timeout would report an ordinary error).
-    finish(await script.runInContext(context));
+    const result: unknown = await script.runInContext(context);
+    // Node reports unhandled rejections after the microtask queue drains; yield once so their
+    // log lines are sent before "done" and are not lost.
+    await new Promise((resolve) => setImmediate(resolve));
+    finish(result);
   } catch (error: unknown) {
     send({ type: "done", ok: false, error: describeError(error).slice(0, 2_000) });
   }

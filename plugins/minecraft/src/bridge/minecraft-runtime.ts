@@ -25,6 +25,7 @@ export class MinecraftRuntime {
   private actQueue: Promise<unknown> = Promise.resolve();
   private currentAction: AbortController | null = null;
   private pendingActs = 0;
+  private readyListeners: ((bot: Bot) => void)[] = [];
 
   constructor(
     private readonly config: BotConfig,
@@ -43,6 +44,11 @@ export class MinecraftRuntime {
 
   observe(options: ObserveOptions): JsonObject {
     return buildObservation(this.requireBot(), options);
+  }
+
+  /** Called with the bot each time it has spawned and loaded its surroundings. */
+  onReady(listener: (bot: Bot) => void): void {
+    this.readyListeners.push(listener);
   }
 
   /** True while an `act` is running or queued. */
@@ -193,6 +199,9 @@ export class MinecraftRuntime {
           bot.waitForChunksToLoad(),
           new Promise((done) => setTimeout(done, CHUNK_WAIT_MS)),
         ]).then(() => {
+          for (const listener of this.readyListeners) {
+            listener(bot);
+          }
           resolve();
         });
       });
