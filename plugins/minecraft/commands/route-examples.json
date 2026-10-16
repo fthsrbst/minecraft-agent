@@ -1,0 +1,53 @@
+{
+  "question": "command_route",
+  "examples": [
+    {
+      "message": "follow me please",
+      "expected": "follow"
+    },
+    {
+      "message": "stop right there",
+      "expected": "stop"
+    },
+    {
+      "message": "can you come with me",
+      "expected": "follow"
+    },
+    {
+      "message": "remember this spot as home",
+      "expected": "sethome"
+    },
+    {
+      "message": "go back home",
+      "expected": "goto"
+    },
+    {
+      "message": "mine some stone for me",
+      "expected": "mine"
+    },
+    {
+      "message": "make me a stone pickaxe",
+      "expected": "task"
+    },
+    {
+      "message": "build a small hut here",
+      "expected": "task"
+    },
+    {
+      "message": "thanks, nice job!",
+      "expected": "chat"
+    },
+    {
+      "message": "what time is it in the game?",
+      "expected": "chat"
+    },
+    {
+      "message": "enough, cancel that",
+      "expected": "stop"
+    },
+    {
+      "message": "what can you do?",
+      "expected": "help"
+    }
+  ]
+}

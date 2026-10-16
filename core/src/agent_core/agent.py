@@ -23,6 +23,10 @@ from pathlib import Path
 from typing import Protocol
 
 from agent_core.commands import CommandError, Invocation, Vocabulary, describe, parse_command
+from agent_core.decisions.client import ChoiceProvider, DecisionClient
+from agent_core.decisions.questions import command_route
+from agent_core.decisions.rules import KeywordRule
+from agent_core.decisions.typesafe_provider import JevProvider
 from agent_core.intent import DEFAULT_PERSONA, intent_system_prompt, route
 from agent_core.library import SkillLibrary
 from agent_core.llm import LlmClient
@@ -74,6 +78,11 @@ class AgentRuntime:
     run_task: TaskRunner  # runs a free-text goal (the Voyager loop) and describes the outcome
     persona: str = DEFAULT_PERSONA
     ask_timeout_s: float = ASK_TIMEOUT_S
+    # L1 (P3.4): a fast choice of command, task or chat before L2. In shadow mode (default for a
+    # new decision point, decision 10) it is only logged; with `l1_act` an accepted choice of a
+    # command that needs no arguments runs at once, without an L2 call.
+    decisions: DecisionClient | None = None
+    l1_act: bool = False
     _work: asyncio.Task[None] | None = field(default=None, init=False)
     _question: tuple[str, asyncio.Future[bool]] | None = field(default=None, init=False)
     _system: str = field(default="", init=False)
@@ -101,6 +110,8 @@ class AgentRuntime:
             return
         if self.name.lower() not in message.lower():
             return  # not for us
+        if await self._l1(sender, message):
+            return
         intent = await route(
             self.llm, self._system, sender, message, self.vocabulary.prefix, new_trace_id()
         )
@@ -110,6 +121,23 @@ class AgentRuntime:
             await self.on_chat(sender, intent.text)
         else:
             await self.task(intent.text, sender)
+
+    async def _l1(self, sender: str, message: str) -> bool:
+        """True when L1 handled the message (act mode, confident, a command without arguments)."""
+        if self.decisions is None:
+            return False
+        decision = await self.decisions.decide(
+            command_route(self.vocabulary),
+            {"message": message, "sender": sender},
+            shadow=not self.l1_act,
+        )
+        spec = self.vocabulary.commands.get(decision.choice or "")
+        if not self.l1_act or not decision.accepted or spec is None:
+            return False
+        if any("default" not in arg for arg in spec.args):
+            return False  # arguments must come from the message: L2 writes the command line
+        await self.on_chat(sender, f"{self.vocabulary.prefix}{spec.name}")
+        return True
 
     async def command(self, invocation: Invocation, sender: str) -> None:
         spec = invocation.spec
@@ -284,6 +312,8 @@ async def serve(args: argparse.Namespace) -> None:
                 return f"Done: {goal} (skill {outcome.learned_skill or 'reused'})."
             return f"I could not: {outcome.reason or outcome.verdict.value}."
 
+        providers: list[ChoiceProvider] = [JevProvider(), KeywordRule()]
+        decisions = DecisionClient(providers, Path("runs/telemetry/decisions.jsonl"))
         runtime = AgentRuntime(
             PluginBot(plugin),
             str(name),
@@ -293,6 +323,8 @@ async def serve(args: argparse.Namespace) -> None:
             llm,
             Autonomy(args.autonomy),
             run_goal,
+            decisions=decisions,
+            l1_act=args.l1 == "act",
         )
         await runtime.say(f"Hello! I am {name} ({args.autonomy} mode). Try #help.")
         print(f"{name} is listening ({args.autonomy} mode). Ctrl-C to stop.")
@@ -316,6 +348,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Run the agent: chat commands, tasks, persona.")
     parser.add_argument("plugin_dir", type=Path)
     parser.add_argument("--autonomy", choices=[a.value for a in Autonomy], default="full")
+    parser.add_argument(
+        "--l1", choices=["shadow", "act"], default="shadow", help="L1 command routing mode"
+    )
     args = parser.parse_args()
     logging.basicConfig(level=logging.WARNING, format="%(name)s: %(message)s")
     try:

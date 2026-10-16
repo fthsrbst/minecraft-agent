@@ -113,6 +113,7 @@ def test_success_on_the_first_attempt_stores_the_skill(tmp_path: Path) -> None:
     outcome = asyncio.run(agent.solve(task(), FakeGame(), trace_id="t"))
     assert outcome.verdict is Verdict.TRUE
     assert outcome.learned_skill == "makePickaxe"
+    assert outcome.final_observation == {"inventory": [{"name": "pickaxe", "count": 1}]}
     assert agent.library.get("makePickaxe") is not None
     prompt = llm.prompt(0)
     assert '<data source="task">\nMake a pickaxe.\n</data>' in prompt
