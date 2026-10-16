@@ -78,3 +78,40 @@ def test_record_use_counts(library: SkillLibrary) -> None:
     library.record_use(["collectLogs", "collectLogs"])
     skill = library.get("collectLogs")
     assert skill is not None and skill.uses == 2
+
+
+# Regressions from review round 3.
+
+
+@pytest.mark.parametrize("name", ["for", "while", "typeof", "delete", "new"])
+def test_javascript_reserved_words_are_not_skill_names(library: SkillLibrary, name: str) -> None:
+    with pytest.raises(LibraryError):
+        library.add(name, "x", "return 1;", "t")
+
+
+def test_mentions_in_comments_strings_and_methods_are_not_calls(library: SkillLibrary) -> None:
+    code = (
+        "// collectLogs() later\n"
+        'log("collectLogs(")\n'
+        "await bot.collectLogs(1);\n"
+        "return `buildShelter(`;"
+    )
+    assert library.dependencies(code) == []
+
+
+def test_declaring_a_library_name_is_refused(library: SkillLibrary) -> None:
+    with pytest.raises(LibraryError, match="declares collectLogs"):
+        library.assemble("const collectLogs = () => 1;\nawait collectLogs();")
+
+
+def test_read_only_needs_an_existing_file(tmp_path: Path) -> None:
+    with pytest.raises(LibraryError, match="no skill library"):
+        SkillLibrary(tmp_path / "missing.sqlite", read_only=True)
+
+
+def test_read_only_is_enforced_by_sqlite(library: SkillLibrary) -> None:
+    import sqlite3
+
+    frozen = SkillLibrary(library.path, read_only=True)
+    with pytest.raises(sqlite3.OperationalError):
+        frozen._db.execute("DELETE FROM skills")  # pyright: ignore[reportPrivateUsage]

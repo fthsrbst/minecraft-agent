@@ -10,6 +10,7 @@ import { MinecraftRuntime } from "./bridge/minecraft-runtime.js";
 import { parseObserveOptions, parseVisibility } from "./bridge/observation.js";
 import { DEFAULT_TIMEOUT_MS, SkillBroker } from "./skills/broker.js";
 import { createPrimitives, SKILL_API } from "./skills/primitives.js";
+import { checkSkillSource, syntaxProblem } from "./skills/static-check.js";
 import { loadBotConfig } from "./bot-config.js";
 import {
   ErrorCode,
@@ -88,7 +89,15 @@ const handlers = new Map<string, Handler>([
         game: manifest.game,
         component: "main",
         visibility,
-        methods: ["handshake", "observe", "act", "interrupt", "skill.run", "skill.cancel"],
+        methods: [
+          "handshake",
+          "observe",
+          "act",
+          "interrupt",
+          "skill.run",
+          "skill.check",
+          "skill.cancel",
+        ],
         primitives: ACT_PRIMITIVES,
         skillApi: SKILL_API,
         // Game knowledge for the code-writing prompt; the core inserts it without reading it.
@@ -143,6 +152,19 @@ const handlers = new Map<string, Handler>([
         throw new RpcError(ErrorCode.NotReady, "An action is running; wait for it or interrupt.");
       }
       return { runId: skills.start(code, args, timeoutMs) };
+    },
+  ],
+  [
+    "skill.check",
+    (params) => {
+      const { code } = params;
+      if (typeof code !== "string") {
+        throw new RpcError(ErrorCode.InvalidParams, "skill.check: `code` must be a string.");
+      }
+      const problems = checkSkillSource(code);
+      const syntax = syntaxProblem(code);
+      const all = syntax === null ? problems : [...problems, syntax];
+      return all.length === 0 ? { ok: true } : { ok: false, problem: all.join("; ") };
     },
   ],
   [

@@ -19,7 +19,65 @@ from pathlib import Path
 # camelCase identifiers: valid JavaScript names that cannot shadow the skill API (`bot`, `args`,
 # `log`) or a language keyword in practice.
 NAME_PATTERN = re.compile(r"^[a-z][a-zA-Z0-9]{2,47}$")
-RESERVED_NAMES = frozenset({"bot", "args", "log", "await", "async", "function", "return"})
+# Names a skill may not have: the skill scope (`bot`, `args`, `log`) and JavaScript's reserved
+# words (a skill named `for` would turn every `for (` into a call).
+RESERVED_NAMES = frozenset(
+    {
+        "bot",
+        "args",
+        "log",
+        "arguments",
+        "eval",
+        "undefined",
+        "await",
+        "async",
+        "break",
+        "case",
+        "catch",
+        "class",
+        "const",
+        "continue",
+        "debugger",
+        "default",
+        "delete",
+        "do",
+        "else",
+        "enum",
+        "export",
+        "extends",
+        "false",
+        "finally",
+        "for",
+        "function",
+        "if",
+        "implements",
+        "import",
+        "in",
+        "instanceof",
+        "interface",
+        "let",
+        "new",
+        "null",
+        "package",
+        "private",
+        "protected",
+        "public",
+        "return",
+        "static",
+        "super",
+        "switch",
+        "this",
+        "throw",
+        "true",
+        "try",
+        "typeof",
+        "var",
+        "void",
+        "while",
+        "with",
+        "yield",
+    }
+)
 MAX_DESCRIPTION = 500
 _STOP_WORDS = frozenset(
     {"a", "an", "and", "the", "of", "to", "in", "on", "for", "with", "from", "at", "by", "it", "is"}
@@ -48,14 +106,44 @@ def tokens(text: str) -> list[str]:
     return [word for word in words if word not in _STOP_WORDS and len(word) > 1]
 
 
+_COMMENTS_AND_STRINGS = re.compile(
+    r"""//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`"""
+)
+
+
+def code_only(code: str) -> str:
+    """The code without comments and string literals: a name mentioned there is not a call."""
+    return _COMMENTS_AND_STRINGS.sub(" ", code)
+
+
 def _calls(code: str, names: Iterable[str]) -> set[str]:
-    return {name for name in names if re.search(rf"\b{re.escape(name)}\s*\(", code)}
+    # A call is `name(` not preceded by `.`, a letter or `$`: `bot.craft(` is not a call of `craft`.
+    plain = code_only(code)
+    return {name for name in names if re.search(rf"(?<![.\w$]){re.escape(name)}\s*\(", plain)}
+
+
+def calls(code: str, name: str) -> bool:
+    """True when the code really calls `name(...)` (not in a comment, a string or as a method)."""
+    return bool(_calls(code, [name]))
+
+
+def declared_names(code: str) -> set[str]:
+    """Names the code declares at any level (`const x`, `let x`, `function x`, `class x`)."""
+    plain = code_only(code)
+    found = re.findall(r"\b(?:const|let|var|function|class)\s+([A-Za-z_$][\w$]*)", plain)
+    return set(found)
 
 
 class SkillLibrary:
     def __init__(self, path: Path, *, read_only: bool = False) -> None:
         self.path = path
         self.read_only = read_only
+        if read_only:
+            # SQLite itself refuses writes, so a frozen arm cannot change the library by accident.
+            if not path.exists():
+                raise LibraryError(f"no skill library at {path} to use read-only")
+            self._db = sqlite3.connect(f"file:{path.resolve()}?mode=ro", uri=True)
+            return
         path.parent.mkdir(parents=True, exist_ok=True)
         self._db = sqlite3.connect(path)
         self._db.execute(
@@ -155,9 +243,19 @@ class SkillLibrary:
         return ordered
 
     def assemble(self, code: str, extra: Sequence[Skill] = ()) -> tuple[str, list[str]]:
-        """Code with the definitions of every library skill it uses in front; and their names."""
+        """Code with the definitions of every library skill it uses in front; and their names.
+
+        Raises LibraryError when the code declares a name a needed library skill already has:
+        the two definitions would collide in one scope.
+        """
         needed = self.dependencies(code)
         names = {skill.name for skill in needed}
+        clashes = sorted(names & declared_names(code))
+        if clashes:
+            raise LibraryError(
+                f"the code declares {', '.join(clashes)}, which is a library skill name; "
+                "rename your helper or call the library skill instead"
+            )
         needed += [skill for skill in extra if skill.name not in names]
         definitions = [
             f"// library skill: {skill.name} (v{skill.version})\n"
