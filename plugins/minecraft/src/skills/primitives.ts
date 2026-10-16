@@ -6,6 +6,8 @@
 import type { Bot } from "mineflayer";
 // Type-only import: adds `bot.collectBlock` to Mineflayer's Bot type (the plugin is loaded at spawn).
 import type {} from "mineflayer-collectblock";
+// Type-only import: adds `bot.tool` (loaded by collectblock) to Mineflayer's Bot type.
+import type {} from "mineflayer-tool";
 import pathfinderModule from "mineflayer-pathfinder";
 import { Vec3 } from "vec3";
 
@@ -33,6 +35,7 @@ const TABLE_RADIUS = 32;
 const MAX_COLLECT = 64;
 const MAX_CRAFT = 64;
 const MAX_WAIT_MS = 10_000;
+const DIG_TIMEOUT_MS = 20_000;
 const CHAT_SPACING_MS = 1_500;
 // The pathfinder reports "stuck" when the bot does not progress; a few in a row means give up.
 const MAX_STUCK = 4;
@@ -418,6 +421,47 @@ export function createPrimitives(
     return { ok: true, gained: got };
   };
 
+  const dig: Primitive = async (args, signal) => {
+    const bot = getBot();
+    const target = new Vec3(
+      requireCoordinate(args, "x"),
+      requireCoordinate(args, "y"),
+      requireCoordinate(args, "z"),
+    ).floored();
+    throwIfAborted(signal);
+    if (target.distanceTo(bot.entity.position) > 4.5) {
+      await goNear(bot, target, 3, signal, GOTO_TIMEOUT_MS);
+    }
+    const block = bot.blockAt(target);
+    if (block === null || NOT_COLLECTABLE.has(block.name) || REPLACEABLE.has(block.name)) {
+      throw new PrimitiveError(`nothing to dig at ${target.toString()} (${block?.name ?? "unloaded"})`);
+    }
+    if (!block.diggable) {
+      throw new PrimitiveError(`${block.name} cannot be dug`);
+    }
+    // Fair mode: digging a block the bot cannot see would reveal what is there (decision 15).
+    if (visibility === "fair") {
+      const space = visibleSpace(bot, 6);
+      if (!space.boundaryKeys.has(cellKey(target.x, target.y, target.z))) {
+        throw new PrimitiveError(`${target.toString()} is not in sight`);
+      }
+    }
+    const before = inventoryCounts(bot);
+    await bounded(() => bot.tool.equipForBlock(block, {}), signal, 5_000, "equip", () => undefined);
+    await bounded(
+      () => bot.dig(block),
+      signal,
+      DIG_TIMEOUT_MS,
+      "dig",
+      () => {
+        bot.stopDigging();
+      },
+    );
+    // Drops land at or near the bot; give the pickup a moment.
+    await inventorySettled(bot, 400, 2_000);
+    return { ok: true, block: block.name, gained: gained(before, inventoryCounts(bot)) };
+  };
+
   const equip: Primitive = async (args, signal) => {
     const bot = getBot();
     const item = requireName(args, "item", registry().itemsByName);
@@ -524,6 +568,7 @@ export function createPrimitives(
     ["collect", collect],
     ["craft", craft],
     ["equip", equip],
+    ["dig", dig],
     ["place", place],
     ["observe", observe],
     ["chat", chat],
@@ -561,6 +606,12 @@ export const SKILL_API: JsonObject[] = [
     returns: "{ ok, item, position }",
     description:
       "Place a block from the inventory at {x, y, z} (air above a solid block), or next to the bot.",
+  },
+  {
+    name: "bot.dig(x, y, z)",
+    returns: "{ ok, block, gained }",
+    description:
+      "Mine the block at a position with the best tool (walks closer if needed). It must be in sight; drops are usually picked up.",
   },
   {
     name: "bot.equip(item)",

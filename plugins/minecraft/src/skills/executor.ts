@@ -76,6 +76,7 @@ const api = Object.freeze({
   place: (item: string, position?: { x: number; y: number; z: number }) =>
     call("place", position === undefined ? { item } : { item, ...position }),
   equip: (item: string) => call("equip", { item }),
+  dig: (x: number, y: number, z: number) => call("dig", { x, y, z }),
   chat: (text: string) => call("chat", { text }),
   wait: (ms: number) => call("wait", { ms }),
 });

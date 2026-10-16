@@ -69,3 +69,24 @@ uv run --env-file ../.env python -m agent_core.skill_demo ../plugins/minecraft \
   ../plugins/minecraft/skills/wooden-pickaxe.js --seed 20261119 \
   --predicate '{"type": "has_item", "item": "wooden_pickaxe"}'
 ```
+
+## The Voyager loop and the skill library
+
+`agent_core.voyager.loop.VoyagerAgent.solve(task, session, trace_id=...)` runs one task:
+
+1. **Predicate first.** The task file's predicate, or one the LLM writes before any code; it must be `false` now
+   (a goal that already holds cannot show that a skill did anything).
+2. **Write.** Sonnet 5.5 gets the rules, the plugin's skill API and game guide (from the handshake), the task, the
+   predicate, the current observation, matching library skills, and every earlier failure of this task.
+3. **Run** the skill in the plugin's executor, with the library skills it calls defined in front of it.
+4. **Verify** with the predicate (the skill's own report never counts). Success stores the skill; failure is fed
+   back, up to 3 attempts.
+
+`agent_core.library.SkillLibrary` keeps verified skills in SQLite: keyword search, dependency assembly, a
+`snapshot_id` for run records, and a read-only mode for frozen evaluation arms.
+
+```bash
+uv run --env-file ../.env python -m agent_core.voyager_demo ../plugins/minecraft \
+  ../plugins/minecraft/tasks/wooden-pickaxe.json ../plugins/minecraft/tasks/stone-pickaxe.json \
+  --seed 20261119 --fresh-library
+```
