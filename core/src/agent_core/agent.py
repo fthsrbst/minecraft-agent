@@ -151,7 +151,9 @@ class AgentRuntime:
             listed = ", ".join(f"{p.name} ({p.x:.0f} {p.y:.0f} {p.z:.0f})" for p in places)
             await self.say(f"Places: {listed}" if places else "No places yet. Try #sethome.")
         elif spec.builtin == "help":
-            await self.say(" | ".join(self.vocabulary.help_lines()))
+            # One line per command: a chat line holds about 250 characters.
+            for line in self.vocabulary.help_lines():
+                await self.say(line)
         elif spec.code is not None:
             await self.say(f"On it: {spec.name}.")
             await self._start(self._run_command(spec.name, spec.code, invocation.args))
