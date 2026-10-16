@@ -64,6 +64,9 @@ async function connectRcon(): Promise<RconClient> {
   return rcon;
 }
 
+const ARENA_LOAD_WAIT_MS = 1_000;
+const ARENA_LOAD_ATTEMPTS = 5;
+
 // Setup, reset and world switches must not interleave (one RCON connection, one server), so all
 // calls run one after another.
 let queue: Promise<unknown> = Promise.resolve();
@@ -183,8 +186,20 @@ const handlers = new Map<string, Handler>([
         params.facing,
         params.give,
       );
-      const result = await run(arena.commands);
-      return { ...result, origin: { ...arena.origin }, facing: arena.facing };
+      await run(arena.load);
+      // Forced chunks load on a later tick: retry the fill until the server has them.
+      for (let attempt = 1; ; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, ARENA_LOAD_WAIT_MS));
+        try {
+          const result = await run(arena.commands);
+          return { ...result, origin: { ...arena.origin }, facing: arena.facing };
+        } catch (error: unknown) {
+          const notLoaded = error instanceof RpcError && error.message.includes("not loaded");
+          if (!notLoaded || attempt >= ARENA_LOAD_ATTEMPTS) {
+            throw error;
+          }
+        }
+      }
     },
   ],
 ]);

@@ -46,6 +46,8 @@ export interface Compiled {
   readonly blueprint: Blueprint;
   readonly materials: Readonly<Record<string, number>>;
   readonly unsupported: readonly string[];
+  /** Things that are captured but may not replay as shown (e.g. a block with no visible support). */
+  readonly warnings: readonly string[];
   /** Changes that undid each other (placed then broken): detours, removed from the blueprint. */
   readonly detours: number;
   readonly summary: string;
@@ -62,6 +64,9 @@ const NOISE: ReadonlySet<string> = new Set([
   "tall_grass",
   "snow",
 ]);
+
+// The replay arena is 17 blocks wide and the bot stands 2 cells behind the build.
+const MAX_REPLAY_WIDTH = 13;
 
 const key = (cell: RelativeCell): string => `${String(cell.a)},${String(cell.b)},${String(cell.c)}`;
 
@@ -82,6 +87,7 @@ export function compile(recording: Recording, isItem: (name: string) => boolean)
   const clear: RelativeCell[] = [];
   const place: PlaceStep[] = [];
   const unsupported: string[] = [];
+  const warnings: string[] = [];
   let detours = 0;
   for (const [k, end] of last) {
     const start = first.get(k) ?? end;
@@ -111,7 +117,7 @@ export function compile(recording: Recording, isItem: (name: string) => boolean)
   for (const step of place) {
     const below = key({ a: step.a, b: step.b - 1, c: step.c });
     if (step.b > minB(place) && !placed.has(below)) {
-      unsupported.push(`${step.block} at ${key(step)} may hang in the air (nothing placed below)`);
+      warnings.push(`${step.block} at ${key(step)} rests on something not built in the demo`);
     }
   }
   const materials: Record<string, number> = {};
@@ -127,7 +133,21 @@ export function compile(recording: Recording, isItem: (name: string) => boolean)
           .join(", ")})`
       : "") +
     ` in a ${size(place, clear)} area`;
-  return { blueprint: { clear, place }, materials, unsupported, detours, summary };
+  const cells = [...place, ...clear];
+  const span = (pick: (cell: RelativeCell) => number): number =>
+    cells.length === 0 ? 0 : Math.max(...cells.map(pick)) - Math.min(...cells.map(pick)) + 1;
+  if (
+    Math.max(
+      span((c) => c.a),
+      span((c) => c.c),
+    ) > MAX_REPLAY_WIDTH ||
+    span((c) => c.b) > 8
+  ) {
+    warnings.push(
+      `the build is larger than v1 replays support (${String(MAX_REPLAY_WIDTH)} wide, 8 high)`,
+    );
+  }
+  return { blueprint: { clear, place }, materials, unsupported, warnings, detours, summary };
 }
 
 function minB(cells: readonly RelativeCell[]): number {
@@ -153,7 +173,7 @@ function size(...groups: readonly (readonly RelativeCell[])[]): string {
 export function skillCode(blueprint: Blueprint, summary: string): string {
   const plan = JSON.stringify({ clear: blueprint.clear, place: blueprint.place });
   const minC = Math.min(0, ...blueprint.place.map((s) => s.c), ...blueprint.clear.map((s) => s.c));
-  return `// Demonstrated build (record a skill v1): ${summary.replace(/[\r\n]/g, " ")}
+  return `// Demonstrated build (record a skill v1): ${summary.replace(/[\r\n\u2028\u2029]/g, " ")}
 const PLAN = ${plan};
 const FACINGS = ["north", "west", "south", "east"];
 const FORWARD = { north: [0, -1], east: [1, 0], south: [0, 1], west: [-1, 0] };
@@ -180,7 +200,7 @@ try {
   log("could not reach the standing spot; building from here:", String(error));
 }
 let placed = 0;
-let skipped = 0;
+const busy = [];
 for (const cell of PLAN.clear) {
   const p = at(cell);
   try {
@@ -189,21 +209,33 @@ for (const cell of PLAN.clear) {
     log("clear skipped at", p, String(error));
   }
 }
-for (const step of PLAN.place) {
-  const p = at(step);
-  try {
-    await bot.place(step.item, p);
-    placed += 1;
-  } catch (error) {
-    // An occupied cell is left as it is (a re-run, or the block was already there); the
-    // independent structure check decides whether it is the right block.
-    if (!String(error).includes("must be free")) {
-      throw error;
+const placeAll = async (steps) => {
+  for (const step of steps) {
+    const p = at(step);
+    try {
+      await bot.place(step.item, p);
+      placed += 1;
+    } catch (error) {
+      // "must be free": the cell is taken (already built, or the bot stands in it) or has no
+      // support yet. It is tried again after the others; the structure check has the last word.
+      if (!String(error).includes("must be free")) {
+        throw error;
+      }
+      busy.push(step);
     }
-    skipped += 1;
   }
+};
+await placeAll(PLAN.place);
+const retry = busy.splice(0);
+if (retry.length > 0) {
+  try {
+    await bot.goTo(stand.x, stand.y, stand.z, { range: 1 });
+  } catch (error) {
+    log("could not step back before the second pass:", String(error));
+  }
+  await placeAll(retry);
 }
-return { ok: true, placed, skipped, origin, facing };
+return { ok: true, placed, skipped: busy.map(at), origin, facing };
 `;
 }
 
@@ -215,6 +247,7 @@ export function compiledJson(compiled: Compiled, code: string): JsonObject {
     },
     materials: { ...compiled.materials },
     unsupported: [...compiled.unsupported],
+    warnings: [...compiled.warnings],
     detours: compiled.detours,
     summary: compiled.summary,
     code,

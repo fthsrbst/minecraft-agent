@@ -69,7 +69,7 @@ describe("compile", () => {
     const events = [event(0, 0, 1, "air", "wall_torch"), event(0, 3, 1, "air", "stone")];
     const compiled = compile(recording([...events, event(0, 0, 2, "air", "stone")]), isItem);
     expect(compiled.unsupported.some((u) => u.startsWith("wall_torch"))).toBe(true);
-    expect(compiled.unsupported.some((u) => u.includes("may hang in the air"))).toBe(true);
+    expect(compiled.warnings.some((w) => w.includes("not built in the demo"))).toBe(true);
   });
 
   it("orders placements bottom up", () => {
@@ -113,7 +113,7 @@ describe("skillCode", () => {
       { origin: { x: 100, y: 70, z: 100 }, facing: "east" },
       () => undefined,
     );
-    expect(result).toMatchObject({ ok: true, placed: 9, skipped: 0, facing: "east" });
+    expect(result).toMatchObject({ ok: true, placed: 9, skipped: [], facing: "east" });
     // Facing east, forward is +x: the floor spans x 101..103, z 99..101 (right is +z).
     expect(Math.min(...placed.map((p) => p.x))).toBe(101);
     expect(Math.max(...placed.map((p) => p.x))).toBe(103);

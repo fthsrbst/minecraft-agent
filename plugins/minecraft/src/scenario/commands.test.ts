@@ -162,6 +162,12 @@ describe("isFailureReply", () => {
 });
 
 describe("arenaCommands", () => {
+  it("treats a fill on unloaded chunks as a failure", () => {
+    expect(isFailureReply("That position is not loaded", "fill 0 0 0 1 1 1 minecraft:stone")).toBe(
+      true,
+    );
+  });
+
   it("builds a separate flat spot per index, facing the given way", () => {
     const first = arenaCommands("AgentBot", 0, "east", [{ item: "oak_planks", count: 9 }]);
     const second = arenaCommands("AgentBot", 1, "north", []);
@@ -171,6 +177,7 @@ describe("arenaCommands", () => {
     expect(first.commands).toContain("tp AgentBot 2000.5 100 2000.5 -90 0");
     expect(first.commands.at(-1)).toBe("give AgentBot minecraft:oak_planks 9");
     expect(first.commands[1]).toBe("fill 1992 99 1992 2008 99 2008 minecraft:stone");
+    expect(first.load).toEqual(["forceload remove all", "forceload add 1992 1992 2008 2008"]);
   });
 
   it("refuses bad input", () => {

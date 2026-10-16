@@ -16,15 +16,21 @@ const EMPTY: ReadonlySet<string> = new Set(["air", "cave_air", "void_air"]);
 
 export class CheckInputError extends Error {}
 
+/**
+ * Only placed blocks count toward `total`/`matched`: a fresh replay spot is already empty, so a
+ * cell to clear would match without the skill doing anything. Cleared cells are reported apart.
+ */
 export interface StructureCheck {
   readonly total: number;
   readonly matched: number;
   readonly unknown: number;
+  readonly cleared: number;
+  readonly clearTotal: number;
   readonly missing: readonly JsonObject[];
 }
 
 export function checkStructure(
-  bot: Bot,
+  bot: Pick<Bot, "blockAt">,
   blueprint: Blueprint,
   origin: Cell,
   facing: Facing,
@@ -32,22 +38,32 @@ export function checkStructure(
   let matched = 0;
   let unknown = 0;
   const missing: JsonObject[] = [];
-  const cells: { cell: RelativeCell; want: string | null }[] = [
-    ...blueprint.place.map((step) => ({ cell: step, want: step.block })),
-    ...blueprint.clear.map((cell) => ({ cell, want: null })),
-  ];
-  for (const { cell, want } of cells) {
+  const nameAt = (cell: RelativeCell): { p: Cell; name: string | undefined } => {
     const p = toWorld(cell, origin, facing);
-    const name = bot.blockAt(new Vec3(p.x, p.y, p.z))?.name;
+    return { p, name: bot.blockAt(new Vec3(p.x, p.y, p.z))?.name };
+  };
+  for (const step of blueprint.place) {
+    const { p, name } = nameAt(step);
     if (name === undefined) {
       unknown += 1;
-    } else if (want === null ? EMPTY.has(name) : name === want) {
+    } else if (name === step.block) {
       matched += 1;
     } else if (missing.length < MAX_MISSING_REPORTED) {
-      missing.push({ ...p, want: want ?? "air", found: name });
+      missing.push({ ...p, want: step.block, found: name });
     }
   }
-  return { total: cells.length, matched, unknown, missing };
+  const cleared = blueprint.clear.filter((cell) => {
+    const { name } = nameAt(cell);
+    return name !== undefined && EMPTY.has(name);
+  }).length;
+  return {
+    total: blueprint.place.length,
+    matched,
+    unknown,
+    cleared,
+    clearTotal: blueprint.clear.length,
+    missing,
+  };
 }
 
 function int(value: JsonValue | undefined, what: string, limit: number): number {

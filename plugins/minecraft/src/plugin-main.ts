@@ -83,7 +83,12 @@ const skills = new SkillBroker(
 );
 
 // Record a skill v1 (P4.1): the bot watches a demonstrator.
-const recorder = new Recorder(() => runtime.liveBot);
+const recorder = new Recorder(() => runtime.liveBot, {
+  botBusy: () => skills.runningId !== null || runtime.busy,
+  ended: (player, reason) => {
+    emit({ type: "record.ended", player, reason });
+  },
+});
 
 /** Recorder and checker errors are the caller's input problems, reported as such. */
 function asParamsError<T>(work: () => T): T {
@@ -278,8 +283,9 @@ const handlers = new Map<string, Handler>([
   [
     "record.stop",
     () => {
-      const recording = asParamsError(() => recorder.stop());
+      // The registry first: if the bot is gone, the recording must not be consumed and lost.
       const registry = runtime.liveBot.registry;
+      const recording = asParamsError(() => recorder.stop());
       const compiled = compile(recording, (name) => registry.itemsByName[name] !== undefined);
       return {
         recording: {

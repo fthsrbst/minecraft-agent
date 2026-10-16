@@ -277,6 +277,8 @@ const MAX_ARENAS = 1_000;
 const ARENA_YAW: Readonly<Record<string, number>> = { south: 0, west: 90, north: 180, east: -90 };
 
 export interface Arena {
+  /** Loads the arena's chunks: nobody stands there yet, and `fill` refuses unloaded chunks. */
+  readonly load: string[];
   readonly commands: string[];
   readonly origin: BlockPosition;
   readonly facing: string;
@@ -308,6 +310,11 @@ export function arenaCommands(
   const area = (dy0: number, dy1: number, block: string): string =>
     `fill ${String(cx - r)} ${String(y + dy0)} ${String(cz - r)} ${String(cx + r)} ${String(y + dy1)} ${String(cz + r)} minecraft:${block}`;
   return {
+    // An earlier arena no longer needs to stay loaded; the player keeps their own chunks loaded.
+    load: [
+      "forceload remove all",
+      `forceload add ${String(cx - r)} ${String(cz - r)} ${String(cx + r)} ${String(cz + r)}`,
+    ],
     commands: [
       `clear ${player}`,
       area(0, 0, "stone"),
@@ -331,6 +338,7 @@ const FAILURE_REPLIES = [
   "Invalid ",
   "Could not ",
   "No entity was found",
+  "not loaded",
 ];
 
 /** Removing entities that are already gone is the goal of a kill, not a failure. */
