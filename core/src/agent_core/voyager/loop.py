@@ -26,6 +26,7 @@ from agent_core.voyager.prompts import (
     Feedback,
     SkillDraft,
     api_names,
+    compact,
     parse_predicate_answer,
     parse_skill,
     predicate_prompt,
@@ -121,6 +122,8 @@ class TaskOutcome:
     used_skills: tuple[str, ...] = ()
     reason: str | None = None
     invalid: InvalidReason | None = None
+    # The observation after the last attempt (compacted), for audits of the verdict.
+    final_observation: JsonObject | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,6 +131,7 @@ class _Step:
     attempt: Attempt
     feedback: Feedback | None = None
     draft: SkillDraft | None = None
+    after: JsonObject | None = None
 
 
 @dataclass(slots=True)
@@ -169,6 +173,7 @@ class VoyagerAgent:
 
         attempts: list[Attempt] = []
         feedback: list[Feedback] = []
+        last_seen: JsonObject | None = None
         for number in range(1, self.max_attempts + 1):
             if time.monotonic() >= deadline:
                 break
@@ -191,16 +196,21 @@ class VoyagerAgent:
                     reason=f"plugin failed: {error}",
                 )  # fmt: skip
             attempts.append(step.attempt)
+            if step.after is not None:
+                last_seen = step.after
             if step.draft is not None:
                 learned = self._store(task.id, step.draft, step.attempt.used_skills)
                 return TaskOutcome(
                     task.id, Verdict.TRUE, tuple(attempts), spec, source,
-                    learned, step.attempt.used_skills,
+                    learned, step.attempt.used_skills, final_observation=_compacted(last_seen),
                 )  # fmt: skip
             if step.feedback is not None:
                 feedback.append(step.feedback)
         reason = "out of attempts" if len(attempts) == self.max_attempts else "out of time"
-        return TaskOutcome(task.id, Verdict.FALSE, tuple(attempts), spec, source, reason=reason)
+        return TaskOutcome(
+            task.id, Verdict.FALSE, tuple(attempts), spec, source,
+            reason=reason, final_observation=_compacted(last_seen),
+        )  # fmt: skip
 
     async def _attempt(
         self,
@@ -262,11 +272,11 @@ class VoyagerAgent:
             _since(began), tuple(used), draft.code, clean,
         )  # fmt: skip
         if ok:
-            return _Step(attempt, draft=draft)
+            return _Step(attempt, draft=draft, after=after)
         more = Feedback(
             number, draft.code, attempt.problem or "", result.logs, after, draft.name, result.result
         )
-        return _Step(attempt, more)
+        return _Step(attempt, more, after=after)
 
     def _check_names(self, draft: SkillDraft) -> None:
         if draft.name in self._api_names:
@@ -354,6 +364,13 @@ def _problem(result: SkillResult, verdict: Verdict) -> str:
     if result.status == "ok":
         return f"the skill returned normally, but the predicate is {verdict}"
     return f"the skill ended with {result.status}: {result.error}; the predicate is {verdict}"
+
+
+def _compacted(observation: JsonObject | None) -> JsonObject | None:
+    if observation is None:
+        return None
+    value = compact(observation)
+    return value if isinstance(value, dict) else None
 
 
 def _since(began: float) -> float:

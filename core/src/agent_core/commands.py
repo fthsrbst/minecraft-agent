@@ -26,6 +26,8 @@ class CommandSpec:
     args: tuple[JsonObject, ...]
     code: str | None = None
     builtin: str | None = None
+    # Words players use for this command (from the plugin), for the L1 keyword rule.
+    keywords: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,6 +55,7 @@ class Vocabulary:
             code, builtin = entry.get("code"), entry.get("builtin")
             if not isinstance(name, str) or not isinstance(args, list):
                 continue
+            keywords = entry.get("keywords")
             specs[name] = CommandSpec(
                 name,
                 str(entry.get("usage", f"#{name}")),
@@ -60,6 +63,9 @@ class Vocabulary:
                 tuple(arg for arg in args if isinstance(arg, dict)),
                 code if isinstance(code, str) else None,
                 builtin if isinstance(builtin, str) else None,
+                tuple(k for k in keywords if isinstance(k, str))
+                if isinstance(keywords, list)
+                else (),
             )
         return Vocabulary(prefix if isinstance(prefix, str) and prefix else "#", specs)
 

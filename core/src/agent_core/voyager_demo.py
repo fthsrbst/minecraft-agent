@@ -120,6 +120,7 @@ async def run_task(
         telemetry_path=TELEMETRY_PATH,
         attempts=len(outcome.attempts),
         failure_reason=outcome.reason,
+        final_observation=outcome.final_observation,
         notes={
             "prompt_version": PROMPT_VERSION,
             "predicate": outcome.predicate,

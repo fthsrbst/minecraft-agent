@@ -18,7 +18,7 @@ from agent_core.plugins import JsonObject, JsonValue
 
 PROMPT_VERSION = "skill-v2"
 MAX_LIST_ITEMS = 25
-MAX_LIBRARY_CODE = 2_500
+MAX_LIBRARY_CODE = 6_000
 MAX_FEEDBACK_LOGS = 20
 _ANSWER_TAGS = re.compile(r"</?(name|description|code|predicate)\s*>", re.IGNORECASE)
 
