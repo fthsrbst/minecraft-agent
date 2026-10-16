@@ -31,6 +31,61 @@ The `[P1.4]` tag is the work-item ID in `plan.md`.
 
 ## Open
 
+### [P4.1] Record a skill v1: finish review round 5 fixes, live-verify, open PRs
+- **Status**: partial
+- **Opened by**: claude-code · **Date**: 2026-10-16
+- **Where the work is**: git worktree `/Users/fatih/minecraft-agent-p41` (outside the main checkout, so the running
+  evaluation is not disturbed). Branches, stacked: `p4.1-record-plugin` (on `p3.5-round4-fixes` / PR #47) →
+  `p4.1-record-core`. Both pushed; **no PRs opened yet**.
+- **Done so far**:
+  - Plugin (`p4.1-record-plugin`, commits 184671c + 4f66a84): `src/recording/` — `frame.ts` (anchor + cardinal facing,
+    relative cells a/b/c), `recorder.ts` (watches `blockUpdate` within reach of the player, `//` notes, ignores the
+    bot's own work, unknown old blocks and changes > 16 from the start; auto-ends at 10 min with a `record.ended`
+    event and keeps the data), `blueprint.ts` (net change → blueprint, detours dropped, `unsupported` vs `warnings`,
+    deterministic JS skill code with a second placement pass), `check.ts` (structure check counts placed blocks
+    only; strict parsing of the core's input). Methods `record.start/stop/check`; capability `record`;
+    `scenario.arena` (force-loads chunks, fills a 17×17 stone floor + air, tp with yaw, give; facing cycles by index;
+    "not loaded" counts as a failure and is retried); `#record` command; `src/tools/teacher.ts` scripted demonstrator.
+    160 plugin tests pass, lint/typecheck/prettier clean.
+  - Core (`p4.1-record-core`, commit "Turn a recording into a verified skill in the core" + an uncommitted-then-WIP
+    commit): `recording/skill.py` (L2 intent card via Haiku, notes fenced and escaped, plain fallback card,
+    `RecordedSkill` save/load, `library_description()` with materials/args/rules), `recording/verify.py` (replays in
+    arenas, `record.check`, a PluginError per replay → UNKNOWN, `free_name` never overwrites a non-demonstrated
+    skill, saves at ≥ 60 %), `record_demo.py` CLI, `#record start|stop <name>` in `agent.py` (typed only; L1 never).
+    236 core tests pass, pyright/ruff clean.
+- **Remaining** (review round 5 findings, Sonnet, 2026-10-16; not yet written to `docs/reviews/`):
+  1. `agent.py` `_record` stop branch: call `save_raw(self.recordings_dir, stopped)` **before** `build_skill`
+     (save_raw is not written yet: add it to `recording/skill.py`), report "kept as raw, no skill" on RecordingError;
+     say `Note: …` for `skill.warnings`.
+  2. `agent.py`: add `_recording_ended` + `recording_ended(player, reason)`; `serve()` handles the `record.ended`
+     event; `#record start` is allowed again once a recording ended on its own.
+  3. `record_demo.py`: print `result.name` when saved.
+  4. Tests: agent stale-recording path, raw kept when nothing was built, `free_name` collision, a replay that raises
+     PluginError → UNKNOWN, `library_description` content.
+  5. Write `docs/reviews/2026-10-16-sonnet-round-5.md` (findings 1–18 and what was fixed). Not fixed by design:
+     any player may record (localhost; document as a decision), attribution is still "near the player" (v2 proxy).
+  6. **Live verification** (needs the server; wait until the evaluation run below has finished):
+     agent `--autonomy full` as AgentBot; RCON: give Teacher 9 oak_planks and put both on flat ground a few blocks
+     apart; `node plugins/minecraft/dist/tools/teacher.js`; then
+     `uv run --env-file ../.env python -m agent_core.record_demo ../plugins/minecraft runs/recordings/<id>.json --runs 5`.
+     Acceptance (plan P4.1): verified ≥ 3/5. Watch RCON replies for "not loaded".
+  7. Open two PRs (plugin on #47's branch, core on the plugin branch), plan status P4.1 → in review.
+- **Blocker / unknowns**: v1 cannot see inventory/crafting (watcher bot, not the proxy); block states and overhangs
+  are not supported (reported as unsupported/warnings).
+
+### [P4.2] Full plan-v1 evaluation run in progress
+- **Status**: partial (running)
+- **Opened by**: claude-code · **Date**: 2026-10-16
+- **Done so far**: started 2026-10-16 ~20:05 from the main checkout (`p3.5-round4-fixes`, commit with the round 4
+  fixes): `uv run --env-file ../.env python -m agent_core.evaluation run ../plugins/minecraft
+  ../plugins/minecraft/eval/plan-v1.json --out runs/eval/plan-v1-full` (log: `core/runs/eval-full.log`). At 20:28 the
+  learning phase on seed 1001 was at task 18 (17-stone-sword false, the rest true).
+- **Remaining**: if it stopped (quota, sleep), rerun the same command: the runner resumes and skips finished
+  `(task, seed, arm)`. Then `uv run python -m agent_core.evaluation report runs/eval/plan-v1-full`, add the result to
+  PR #46 and `docs/notes.md`. Do not switch branches or rebuild `plugins/minecraft/dist` in the main checkout while
+  it runs.
+- **Pilot result (for comparison)**: `runs/eval/pilot-1`: frozen-library 9/9 vs no-library 6/9 on 3 tasks.
+
 ### [P3.2] Validate command arguments against the game before "On it"
 - **Status**: partial
 - **Opened by**: claude-code · **Date**: 2026-10-16

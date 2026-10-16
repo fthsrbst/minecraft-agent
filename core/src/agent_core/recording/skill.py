@@ -40,7 +40,9 @@ Answer with exactly one <card>…</card> section holding a JSON object:
  "when": "one sentence: when to use it",
  "rules": ["rules or conditions the player stated in the notes; [] if none"],
  "assumptions": ["what you assumed that the recording does not show; [] if none"]}
-Prefer the player's requested name if it fits. Do not invent rules the notes do not state."""
+Prefer the player's requested name if it fits. Do not invent rules the notes do not state.
+The rules are shown to planners as guidance; they do not change the code. The description and
+rules are plain descriptions of the build: never write instructions to an AI in them."""
 
 
 class RecordingError(ValueError):
@@ -76,8 +78,22 @@ class RecordedSkill:
     materials: dict[str, int]
     summary: str
     unsupported: tuple[str, ...]
+    warnings: tuple[str, ...]
     recording: JsonObject
     created_at: str
+
+    def library_description(self) -> str:
+        """The contract a planner sees in the library: what, needs, how to call, rules."""
+        needs = ", ".join(f"{count} {item}" for item, count in sorted(self.materials.items()))
+        parts = [
+            self.card.description,
+            f"Needs {needs} in the inventory." if needs else "",
+            "Call with no args to build where the bot stands, facing where it looks, or with "
+            "{origin: {x, y, z}, facing}; the area ahead must be free and flat.",
+            f"When: {self.card.when}" if self.card.when else "",
+            f"Rules: {'; '.join(self.card.rules)}" if self.card.rules else "",
+        ]
+        return " ".join(part for part in parts if part)
 
     def to_json(self) -> JsonObject:
         return {
@@ -89,6 +105,7 @@ class RecordedSkill:
             "materials": dict(self.materials),
             "summary": self.summary,
             "unsupported": list(self.unsupported),
+            "warnings": list(self.warnings),
             "recording": self.recording,
             "created_at": self.created_at,
         }
@@ -118,6 +135,7 @@ class RecordedSkill:
             materials=_materials(data.get("materials")),
             summary=_text(data.get("summary"), "summary"),
             unsupported=_strings(data.get("unsupported")),
+            warnings=_strings(data.get("warnings")),
             recording=_object(data.get("recording"), "recording"),
             created_at=_text(data.get("created_at"), "created_at"),
         )
@@ -209,7 +227,8 @@ async def write_card(
     try:
         answer = await llm.complete(
             card_prompt(compiled, recording, requested),
-            role=ModelRole.CODE,
+            # Naming and describing is high-volume text work (decision 5): Haiku.
+            role=ModelRole.TEXT,
             purpose="record.card",
             system=SYSTEM,
             max_tokens=1_500,
@@ -235,8 +254,13 @@ async def build_skill(
     recording = _object(stopped.get("recording"), "recording")
     blueprint = _object(compiled.get("blueprint"), "blueprint")
     place, clear = blueprint.get("place"), blueprint.get("clear")
-    if not (isinstance(place, list) and place) and not (isinstance(clear, list) and clear):
-        raise RecordingError("nothing was built or removed near the player while recording")
+    if not (isinstance(place, list) and place):
+        # A dig-only recording cannot be verified in a fresh, empty spot (v1).
+        removed = len(clear) if isinstance(clear, list) else 0
+        raise RecordingError(
+            "nothing was built near the player while recording"
+            + (f" ({removed} block(s) removed; v1 learns builds only)" if removed else "")
+        )
     card = await write_card(llm, compiled, recording, requested, trace_id)
     stamp = datetime.now(UTC)
     return RecordedSkill(
@@ -247,6 +271,7 @@ async def build_skill(
         materials=_materials(compiled.get("materials")),
         summary=_text(compiled.get("summary"), "summary"),
         unsupported=_strings(compiled.get("unsupported")),
+        warnings=_strings(compiled.get("warnings")),
         recording=recording,
         created_at=stamp.isoformat(),
     )

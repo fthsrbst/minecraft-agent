@@ -22,6 +22,7 @@ REPLAY_TIMEOUT_S = 240.0
 SETTLE_S = 2.0
 # Decision 11c: in `full` the save decision comes from the verification score.
 PASS_SHARE = 0.6
+DEMONSTRATED = "demonstrated:"
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,6 +41,7 @@ class Replay:
 class Verification:
     replays: tuple[Replay, ...]
     saved: bool
+    name: str | None = None  # the library name, when saved
 
     @property
     def passed(self) -> int:
@@ -130,7 +132,12 @@ async def verify(
             arm="replay",
             visibility=visibility if isinstance(visibility, str) else None,
         )
-        replay = await replay_once(skill, bot, scenario, player, index)
+        try:
+            replay = await replay_once(skill, bot, scenario, player, index)
+        except PluginError as error:
+            # One broken replay (a spot that would not build, a check refused) is not a verdict
+            # on the skill: it is recorded as unknown and the others still run.
+            replay = Replay(index, "?", Verdict.UNKNOWN, 0, 0, "error", str(error), ())
         replays.append(replay)
         recorder.record(
             run.finish(
@@ -149,8 +156,20 @@ async def verify(
             )
         )
     passed = sum(r.verdict is Verdict.TRUE for r in replays)
-    saved = False
+    name: str | None = None
     if library is not None and passed >= math.ceil(PASS_SHARE * runs):
-        library.add(skill.card.name, skill.card.description, skill.code, f"demonstrated:{skill.id}")
-        saved = True
-    return Verification(tuple(replays), saved)
+        name = free_name(library, skill.card.name)
+        library.add(name, skill.library_description(), skill.code, f"{DEMONSTRATED}{skill.id}")
+    return Verification(tuple(replays), name is not None, name)
+
+
+def free_name(library: SkillLibrary, name: str) -> str:
+    """A demonstrated skill may replace an older demonstration of itself, never a skill learned
+    another way (that one was verified on other tasks)."""
+    candidate, n = name, 1
+    while (existing := library.get(candidate)) is not None and not existing.source_task.startswith(
+        DEMONSTRATED
+    ):
+        n += 1
+        candidate = f"{name}{n}"
+    return candidate
