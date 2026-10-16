@@ -41,6 +41,9 @@ class TaskRunRecord:
     llm_output_tokens: int
     llm_cost_usd: float
     llm_cost_complete: bool
+    llm_cache_read_tokens: int
+    llm_cache_write_tokens: int
+    llm_telemetry_found: bool
     final_observation: JsonObject | None = None
     notes: JsonObject = field(default_factory=dict[str, JsonValue])
 
@@ -99,6 +102,9 @@ class TaskRun:
             llm_output_tokens=totals.output_tokens,
             llm_cost_usd=totals.cost_usd,
             llm_cost_complete=totals.cost_complete,
+            llm_cache_read_tokens=totals.cache_read_tokens,
+            llm_cache_write_tokens=totals.cache_write_tokens,
+            llm_telemetry_found=totals.telemetry_found,
             final_observation=final_observation,
             notes=notes or {},
         )

@@ -37,6 +37,8 @@ describe("parseAction", () => {
       /control characters/,
     ],
     ["carriage return", { primitive: "chat", args: { text: "hi\r/op x" } }, /control characters/],
+    ["formatting code", { primitive: "chat", args: { text: "hello §kfoo" } }, /formatting codes/],
+    ["zero-width space", { primitive: "chat", args: { text: "a\u200bb" } }, /invisible/],
     ["empty chat", { primitive: "chat", args: { text: "  " } }, /non-empty/],
     ["long chat", { primitive: "chat", args: { text: "a".repeat(257) } }, /at most 256/],
     [

@@ -19,7 +19,7 @@ from agent_core.plugins import JsonObject, ManifestError, PluginClient, PluginEr
 from agent_core.runs import RunRecorder, TaskRun
 from agent_core.scenarios import wait_for_verdict
 from agent_core.skills import run_skill
-from agent_core.verifier import PredicateError, Verdict, parse_predicate
+from agent_core.verifier import Predicate, PredicateError, Verdict, parse_predicate
 
 RUNS_PATH = Path("runs/skill-demo.jsonl")
 TELEMETRY_PATH = Path("runs/telemetry/skill-demo.jsonl")
@@ -36,48 +36,83 @@ async def run(args: argparse.Namespace, code: str) -> bool:
     predicate = (
         parse_predicate(_json_object(args.predicate, "predicate")) if args.predicate else None
     )
+    recorder = RunRecorder(RUNS_PATH)
     async with await PluginClient.start(args.plugin_dir, component="scenario") as scenario:
         await scenario.handshake(timeout_s=15)
         world_id = None
         if args.seed is not None:
             world = await scenario.request("scenario.world", {"seed": args.seed}, timeout_s=600)
             world_id = world.get("worldInstanceId") if isinstance(world, dict) else None
-        async with await PluginClient.start(args.plugin_dir) as bot:
-            hello = await bot.handshake()
-            visibility = hello.get("visibility")
-            task = TaskRun(
-                task_id=Path(args.skill).stem,
-                arm="hand-written",
-                seed=args.seed,
-                world_instance_id=world_id if isinstance(world_id, str) else None,
-                visibility=visibility if isinstance(visibility, str) else None,
+        task = TaskRun(
+            task_id=Path(args.skill).stem,
+            arm="hand-written",
+            seed=args.seed,
+            world_instance_id=world_id if isinstance(world_id, str) else None,
+        )
+        try:
+            async with await PluginClient.start(args.plugin_dir) as bot:
+                return await attempt(args, code, predicate, scenario, bot, task, recorder)
+        except BaseException as error:
+            # A run that breaks is still a run: without this record it would vanish from the
+            # success rate.
+            recorder.record(
+                task.finish(
+                    Verdict.UNKNOWN,
+                    telemetry_path=TELEMETRY_PATH,
+                    failure_reason=f"{type(error).__name__}: {error}",
+                )
             )
-            player = (await bot.observe({"nearby": False})).get("username")
-            if predicate is not None:
-                reset = _json_object(args.reset, "reset") if args.reset else {}
-                await scenario.request("scenario.reset", {**reset, "player": player})
-                before = await wait_for_verdict(bot, predicate, Verdict.FALSE)
-                print(f"before: predicate={before.verdict}")
-            result = await run_skill(
-                bot, code, _json_object(args.args, "args"), timeout_s=args.timeout
+            raise
+
+
+async def attempt(
+    args: argparse.Namespace,
+    code: str,
+    predicate: Predicate | None,
+    scenario: PluginClient,
+    bot: PluginClient,
+    task: TaskRun,
+    recorder: RunRecorder,
+) -> bool:
+    hello = await bot.handshake()
+    visibility = hello.get("visibility")
+    task.visibility = visibility if isinstance(visibility, str) else None
+    player = (await bot.observe({"nearby": False})).get("username")
+    if predicate is not None:
+        reset = _json_object(args.reset, "reset") if args.reset else {}
+        await scenario.request("scenario.reset", {**reset, "player": player})
+        before = await wait_for_verdict(bot, predicate, Verdict.FALSE)
+        print(f"before: predicate={before.verdict}")
+        if before.verdict is not Verdict.FALSE:
+            # A predicate that already holds cannot show that the skill did anything.
+            recorder.record(
+                task.finish(
+                    Verdict.UNKNOWN,
+                    telemetry_path=TELEMETRY_PATH,
+                    attempts=0,
+                    failure_reason=f"predicate was {before.verdict} before the skill ran",
+                )
             )
-            print(
-                f"skill: status={result.status} in {result.duration_ms / 1000:.1f}s, "
-                f"{result.primitive_calls} primitive calls, error={result.error}"
-            )
-            for line in result.logs:
-                print(f"  log: {line}")
-            print(f"  result: {json.dumps(result.result)}")
-            # The bot must still answer after any skill outcome, including a killed executor.
-            after = await bot.observe({"nearby": False})
-            print(f"bot alive: health={after.get('health')} position={after.get('position')}")
-            # A skill's own report is not verification (AGENTS.md decision 6): without a
-            # predicate the verdict stays unknown.
-            verdict = Verdict.UNKNOWN
-            if predicate is not None:
-                verdict = (await wait_for_verdict(bot, predicate, Verdict.TRUE, within_s=3)).verdict
-                print(f"after: predicate={verdict}")
-    RunRecorder(RUNS_PATH).record(
+            print("predicate is not false before the run; nothing to verify")
+            return False
+    result = await run_skill(bot, code, _json_object(args.args, "args"), timeout_s=args.timeout)
+    print(
+        f"skill: status={result.status} in {result.duration_ms / 1000:.1f}s, "
+        f"{result.primitive_calls} primitive calls, error={result.error}"
+    )
+    for line in result.logs:
+        print(f"  log: {line}")
+    print(f"  result: {json.dumps(result.result)}")
+    # The bot must still answer after any skill outcome, including a killed executor.
+    after = await bot.observe({"nearby": False})
+    print(f"bot alive: health={after.get('health')} position={after.get('position')}")
+    # A skill's own report is not verification (AGENTS.md decision 6): without a predicate the
+    # verdict stays unknown.
+    verdict = Verdict.UNKNOWN
+    if predicate is not None:
+        verdict = (await wait_for_verdict(bot, predicate, Verdict.TRUE, within_s=3)).verdict
+        print(f"after: predicate={verdict}")
+    recorder.record(
         task.finish(
             verdict,
             telemetry_path=TELEMETRY_PATH,

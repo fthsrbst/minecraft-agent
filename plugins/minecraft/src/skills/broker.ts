@@ -6,7 +6,7 @@
  * `start` returns a run id at once; the outcome arrives later as a `skill.done` event, because a
  * skill can run for minutes and must stay interruptible.
  */
-import { type ChildProcess, fork } from "node:child_process";
+import { type ChildProcess, execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,8 +23,13 @@ export type SkillStatus = "ok" | "error" | "timeout" | "cancelled" | "crashed";
 export const DEFAULT_TIMEOUT_MS = 120_000;
 export const MAX_TIMEOUT_MS = 600_000;
 const MAX_PRIMITIVE_CALLS = 500;
+const MAX_CHATS = 20;
 const MAX_LOG_LINES = 100;
-const EXECUTOR_MEMORY_MB = 256;
+const EXECUTOR_HEAP_MB = 256;
+// --max-old-space-size caps the JS heap only; typed arrays live outside it. The resident size is
+// polled and the executor killed above this.
+const EXECUTOR_RSS_LIMIT_MB = 512;
+const RSS_POLL_MS = 500;
 
 // Tests import this module from src/ (TypeScript); production runs dist/ (JavaScript).
 const executorUrl = new URL(
@@ -40,13 +45,28 @@ interface ActiveRun {
   readonly abort: AbortController;
   readonly logs: string[];
   readonly stderr: string[];
+  readonly memoryPoll: NodeJS.Timeout;
   primitiveCalls: number;
+  chats: number;
   // Primitives run one at a time: they share the bot's controls and inventory.
   queue: Promise<unknown>;
 }
 
+/** Resident memory of a process in MB, or null if it cannot be read. */
+function residentMb(pid: number): Promise<number | null> {
+  return new Promise((resolve) => {
+    execFile("ps", ["-o", "rss=", "-p", String(pid)], { timeout: 2_000 }, (error, stdout) => {
+      const kb = Number(stdout.trim());
+      resolve(error === null && Number.isFinite(kb) && kb > 0 ? kb / 1024 : null);
+    });
+  });
+}
+
 export class SkillBroker {
   private active: ActiveRun | null = null;
+  // The last run's queue: a primitive that cannot be aborted (e.g. a craft) may still be running
+  // after the run ended, and a new skill must not act on the bot at the same time.
+  private draining: Promise<unknown> | null = null;
 
   constructor(
     private readonly primitives: ReadonlyMap<string, Primitive>,
@@ -62,6 +82,9 @@ export class SkillBroker {
     if (this.active !== null) {
       throw new RpcError(ErrorCode.NotReady, `A skill is already running (${this.active.runId}).`);
     }
+    if (this.draining !== null) {
+      throw new RpcError(ErrorCode.NotReady, "The previous skill is still stopping; retry shortly.");
+    }
     const problems = checkSkillSource(code);
     if (problems.length > 0) {
       throw new RpcError(ErrorCode.InvalidParams, `skill rejected: ${problems.join("; ")}.`, {
@@ -75,19 +98,24 @@ export class SkillBroker {
       );
     }
 
-    const child = fork(fileURLToPath(executorUrl), [], {
+    const nodeArgs = [
       // Node's permission model: the executor may read its own code and nothing else; no file
-      // writes, no child processes, no workers, no native addons. No environment: no secrets.
-      execArgv: [
-        "--permission",
-        `--allow-fs-read=${dirname(fileURLToPath(executorUrl))}`,
-        `--max-old-space-size=${String(EXECUTOR_MEMORY_MB)}`,
-        "--disallow-code-generation-from-strings",
-      ],
-      env: {},
-      stdio: ["ignore", "ignore", "pipe", "ipc"],
-      serialization: "json",
-    });
+      // writes, no child processes, no workers, no native addons.
+      "--permission",
+      `--allow-fs-read=${dirname(fileURLToPath(executorUrl))}`,
+      `--max-old-space-size=${String(EXECUTOR_HEAP_MB)}`,
+      "--disallow-code-generation-from-strings",
+      fileURLToPath(executorUrl),
+    ];
+    // Started through sh only to set a CPU-time limit: if the plugin dies without killing the
+    // executor, a busy loop still ends on its own (a blocked event loop never sees "disconnect").
+    const cpuSeconds = Math.ceil(timeoutMs / 1000) + 5;
+    const child = spawn(
+      "/bin/sh",
+      ["-c", `ulimit -t ${String(cpuSeconds)} && exec "$0" "$@"`, process.execPath, ...nodeArgs],
+      // No environment: no secrets. Node adds only its IPC channel variables.
+      { env: {}, stdio: ["ignore", "ignore", "pipe", "ipc"], serialization: "json" },
+    );
     const runId = randomUUID();
     const run: ActiveRun = {
       runId,
@@ -99,7 +127,18 @@ export class SkillBroker {
       abort: new AbortController(),
       logs: [],
       stderr: [],
+      memoryPoll: setInterval(() => {
+        if (child.pid === undefined) {
+          return;
+        }
+        void residentMb(child.pid).then((mb) => {
+          if (mb !== null && mb > EXECUTOR_RSS_LIMIT_MB) {
+            this.finish(run, "crashed", null, `memory limit: ${mb.toFixed(0)} MB resident`);
+          }
+        });
+      }, RSS_POLL_MS),
       primitiveCalls: 0,
+      chats: 0,
       queue: Promise.resolve(),
     };
     this.active = run;
@@ -114,7 +153,8 @@ export class SkillBroker {
     });
     child.on("exit", (code, signal) => {
       const tail = run.stderr.join("\n");
-      this.finish(run, "crashed", null, `executor exited (${String(code ?? signal)}). ${tail}`);
+      const hint = signal === "SIGABRT" || /heap out of memory/i.test(tail) ? " (out of memory)" : "";
+      this.finish(run, "crashed", null, `executor exited (${String(code ?? signal)})${hint}. ${tail}`);
     });
     child.on("error", (error) => {
       this.finish(run, "crashed", null, `executor error: ${error.message}`);
@@ -142,10 +182,11 @@ export class SkillBroker {
     }
     switch (message.type) {
       case "log":
+        // The executor caps its lines too; this is the guard if it does not.
         if (run.logs.length < MAX_LOG_LINES) {
           run.logs.push(message.message);
+          this.emit({ type: "skill.log", runId: run.runId, message: message.message });
         }
-        this.emit({ type: "skill.log", runId: run.runId, message: message.message });
         return;
       case "done":
         this.finish(
@@ -169,6 +210,10 @@ export class SkillBroker {
         run.child.send(message);
       }
     };
+    // Calls queued before a cancel or timeout must not reach the bot afterwards.
+    if (this.active !== run || run.abort.signal.aborted) {
+      return;
+    }
     const primitive = this.primitives.get(name);
     if (primitive === undefined) {
       reply(false, null, `unknown primitive ${name}`);
@@ -176,7 +221,11 @@ export class SkillBroker {
     }
     run.primitiveCalls += 1;
     if (run.primitiveCalls > MAX_PRIMITIVE_CALLS) {
-      reply(false, null, `more than ${String(MAX_PRIMITIVE_CALLS)} primitive calls`);
+      this.finish(run, "error", null, `more than ${String(MAX_PRIMITIVE_CALLS)} primitive calls`);
+      return;
+    }
+    if (name === "chat" && ++run.chats > MAX_CHATS) {
+      reply(false, null, `more than ${String(MAX_CHATS)} chat lines in one skill`);
       return;
     }
     try {
@@ -197,7 +246,18 @@ export class SkillBroker {
     }
     this.active = null;
     clearTimeout(run.timer);
+    clearInterval(run.memoryPoll);
     run.abort.abort();
+    const draining = run.queue.then(
+      () => undefined,
+      () => undefined,
+    );
+    this.draining = draining;
+    void draining.then(() => {
+      if (this.draining === draining) {
+        this.draining = null;
+      }
+    });
     if (run.child.exitCode === null && run.child.signalCode === null) {
       run.child.kill("SIGKILL");
     }

@@ -5,18 +5,28 @@
  *
  * The code runs as the body of an async function with `bot`, `args` and `log` in scope, inside a
  * `vm` context without `process` or `require`. (vm is not a security boundary on its own; the
- * process boundary and Node's permission model are.)
+ * process boundary, Node's permission model and the broker's limits are.)
  */
 import { createContext, Script } from "node:vm";
 
 import type { JsonObject, JsonValue } from "../rpc/json-rpc.js";
 import type { FromExecutor, ToExecutor } from "./protocol.js";
 
-// Bounds the synchronous part of the code (e.g. a CPU loop before the first await). The broker's
-// timeout bounds the whole run.
-const SYNC_TIMEOUT_MS = 5_000;
+const MAX_LOG_LINES = 100;
+const MAX_LOG_LINE = 500;
+const MAX_RESULT_CHARS = 20_000;
+
+// The objects handed to the skill (`bot`, `args`, `log`, replies) come from this realm. Without
+// this, a skill could add `Object.prototype.toJSON` and rewrite every message this process sends
+// (e.g. forge a `done` result). Frozen before any skill code runs.
+for (const value of [Object, Array, Function, Promise, Error, String, Number, Boolean, Symbol]) {
+  Object.freeze(value.prototype);
+  Object.freeze(value);
+}
+Object.freeze(JSON);
 
 let nextId = 1;
+let logLines = 0;
 const pending = new Map<number, { resolve: (v: JsonValue) => void; reject: (e: Error) => void }>();
 
 function send(message: FromExecutor): void {
@@ -31,17 +41,28 @@ function call(name: string, args: JsonObject): Promise<JsonValue> {
   });
 }
 
+// The DOM-free lib types JSON.stringify as always returning a string; it does not.
+const toJson: (value: unknown) => string | undefined = JSON.stringify;
+
+function stringify(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+  try {
+    // JSON.stringify returns undefined for undefined, functions and symbols.
+    return toJson(value) ?? String(value);
+  } catch {
+    return String(value);
+  }
+}
+
 // Errors thrown by skill code come from the vm context's realm, where `instanceof Error` is false.
 function describeError(error: unknown): string {
   if (typeof error === "object" && error !== null && "message" in error) {
     const name = "name" in error ? String(error.name) : "Error";
     return `${name}: ${String(error.message)}`;
   }
-  return stringify(error);
-}
-
-function stringify(value: unknown): string {
-  return typeof value === "string" ? value : JSON.stringify(value);
+  return `thrown value: ${stringify(error)}`;
 }
 
 /** The API skill code sees as `bot`. Positional arguments map to named primitive arguments. */
@@ -60,7 +81,28 @@ const api = Object.freeze({
 });
 
 function log(...parts: unknown[]): void {
-  send({ type: "log", message: parts.map(stringify).join(" ").slice(0, 2_000) });
+  // A log loop must not flood the broker; the first lines are the useful ones.
+  if (logLines >= MAX_LOG_LINES) {
+    return;
+  }
+  logLines += 1;
+  send({ type: "log", message: parts.map(stringify).join(" ").slice(0, MAX_LOG_LINE) });
+}
+
+function finish(result: unknown): void {
+  const text = result === undefined ? "null" : stringify(result);
+  if (text.length > MAX_RESULT_CHARS) {
+    const error = `result is larger than ${String(MAX_RESULT_CHARS)} characters`;
+    send({ type: "done", ok: false, error });
+    return;
+  }
+  let value: JsonValue;
+  try {
+    value = JSON.parse(text) as JsonValue;
+  } catch {
+    value = text; // not JSON (e.g. a function): report its text
+  }
+  send({ type: "done", ok: true, result: value });
 }
 
 async function run(code: string, args: JsonObject): Promise<void> {
@@ -72,16 +114,31 @@ async function run(code: string, args: JsonObject): Promise<void> {
   );
   try {
     const script = new Script(`(async () => {\n${code}\n})()`, { filename: "skill.js" });
-    const result: unknown = await script.runInContext(context, { timeout: SYNC_TIMEOUT_MS });
-    send({ type: "done", ok: true, result: (result ?? null) as JsonValue });
+    // No vm timeout: the broker's deadline ends every run, sync loops included, with an honest
+    // "timeout" status (a vm timeout would report an ordinary error).
+    finish(await script.runInContext(context));
   } catch (error: unknown) {
     send({ type: "done", ok: false, error: describeError(error).slice(0, 2_000) });
   }
 }
 
+// The broker is gone (plugin crashed or was killed): nobody can use the result, so stop. A CPU
+// loop blocks this handler; the CPU-time limit the broker sets (ulimit -t) ends that case.
+// A skill that forgets to await a failing primitive must not crash the executor; the run goes on
+// and the rejection is written to the run's log.
+process.on("unhandledRejection", (reason: unknown) => {
+  log("unhandled rejection:", describeError(reason));
+});
+
+process.on("disconnect", () => {
+  process.exit(1);
+});
+
 process.on("message", (message: ToExecutor) => {
   if (message.type === "run") {
-    void run(message.code, message.args);
+    run(message.code, message.args).catch((error: unknown) => {
+      send({ type: "done", ok: false, error: describeError(error).slice(0, 2_000) });
+    });
     return;
   }
   const waiter = pending.get(message.id);

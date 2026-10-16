@@ -48,32 +48,45 @@ async def check_run(
     seed: int | None,
     recorder: RunRecorder,
 ) -> bool:
-    # A world switch restarts the server, so the bot connects after it, once per run.
-    world_id = await fresh_world(scenario_plugin, seed)
-    async with await PluginClient.start(plugin_dir) as bot:
-        hello = await bot.handshake()
-        visibility = hello.get("visibility")
-        run = TaskRun(
-            task_id=scenario.id,
-            arm="scripted",
-            seed=seed,
-            world_instance_id=world_id,
-            visibility=visibility if isinstance(visibility, str) else None,
+    run = TaskRun(task_id=scenario.id, arm="scripted", seed=seed)
+    try:
+        # A world switch restarts the server, so the bot connects after it, once per run.
+        run.world_instance_id = await fresh_world(scenario_plugin, seed)
+        async with await PluginClient.start(plugin_dir) as bot:
+            hello = await bot.handshake()
+            visibility = hello.get("visibility")
+            run.visibility = visibility if isinstance(visibility, str) else None
+            player = await player_name(bot)
+            await scenario_plugin.request("scenario.reset", {**scenario.reset, "player": player})
+            after_reset = await wait_for_verdict(bot, scenario.predicate, Verdict.FALSE)
+            await scenario_plugin.request(
+                "scenario.setup", {"player": player, "spec": scenario.setup}
+            )
+            after_setup = await wait_for_verdict(bot, scenario.predicate, Verdict.TRUE)
+    except BaseException as error:
+        # A run that breaks is still a run; without a record it would vanish from the results.
+        recorder.record(
+            run.finish(
+                Verdict.UNKNOWN,
+                telemetry_path=TELEMETRY_PATH,
+                attempts=0,
+                failure_reason=f"{type(error).__name__}: {error}",
+            )
         )
-        player = await player_name(bot)
-        await scenario_plugin.request("scenario.reset", {**scenario.reset, "player": player})
-        after_reset = await wait_for_verdict(bot, scenario.predicate, Verdict.FALSE)
-        await scenario_plugin.request("scenario.setup", {"player": player, "spec": scenario.setup})
-        after_setup = await wait_for_verdict(bot, scenario.predicate, Verdict.TRUE)
+        raise
+    world_id = run.world_instance_id
 
     ok = after_reset.verdict is Verdict.FALSE and after_setup.verdict is Verdict.TRUE
     notes: JsonObject = {"after_reset": after_reset.verdict.value}
     failure = (
         None if ok else f"after reset={after_reset.verdict}, after setup={after_setup.verdict}"
     )
+    # TRUE is recorded only when the predicate also was false before: otherwise the setup cannot
+    # be credited with making it true.
+    verdict = after_setup.verdict if after_reset.verdict is Verdict.FALSE else Verdict.UNKNOWN
     recorder.record(
         run.finish(
-            after_setup.verdict,
+            verdict,
             telemetry_path=TELEMETRY_PATH,
             attempts=0,
             failure_reason=failure,

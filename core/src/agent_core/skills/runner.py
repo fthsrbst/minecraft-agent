@@ -78,18 +78,33 @@ async def run_skill(
         return event_run in run_ids
 
     done = plugin.expect_event(is_done)
-    reply = await plugin.request(
-        "skill.run",
-        {"code": code, "args": args or {}, "timeoutMs": int(timeout_s * 1000)},
-    )
-    run_id = reply.get("runId") if isinstance(reply, dict) else None
-    if not isinstance(run_id, str):
-        raise SkillRunError(f"skill.run returned no run id: {reply!r}")
-    run_ids.append(run_id)
+    run_id: str | None = None
     try:
+        try:
+            reply = await plugin.request(
+                "skill.run",
+                {"code": code, "args": args or {}, "timeoutMs": int(timeout_s * 1000)},
+            )
+        except (TimeoutError, asyncio.CancelledError):
+            # The plugin may have started the run before the reply was lost: cancel whatever runs.
+            await _cancel(plugin, None)
+            raise
+        found = reply.get("runId") if isinstance(reply, dict) else None
+        if not isinstance(found, str):
+            raise SkillRunError(f"skill.run returned no run id: {reply!r}")
+        run_id = found
+        run_ids.append(run_id)
         event = seen.get(run_id) or await done.wait(timeout_s + DONE_EVENT_MARGIN_S)
     except (TimeoutError, asyncio.CancelledError):
-        with contextlib.suppress(PluginError, TimeoutError):
-            await plugin.request("skill.cancel", {"runId": run_id}, timeout_s=5)
+        if run_id is not None:
+            await _cancel(plugin, run_id)
         raise
+    finally:
+        done.forget()
     return _parse_done(event)
+
+
+async def _cancel(plugin: PluginClient, run_id: str | None) -> None:
+    params: JsonObject = {} if run_id is None else {"runId": run_id}
+    with contextlib.suppress(PluginError, TimeoutError):
+        await plugin.request("skill.cancel", params, timeout_s=5)

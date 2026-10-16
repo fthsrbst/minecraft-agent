@@ -15,7 +15,7 @@ import {
 } from "./rpc/json-rpc.js";
 import { isFailureReply, parsePlayer, resetCommands, setupCommands } from "./scenario/commands.js";
 import { RconClient, RconError } from "./scenario/rcon.js";
-import { freshWorld, type WorldConfig, WorldError } from "./scenario/world.js";
+import { freshWorld, parseSeed, type WorldConfig, WorldError } from "./scenario/world.js";
 
 // stdout carries protocol messages only (see plugin-main.ts).
 console.log = console.error;
@@ -79,7 +79,16 @@ const worldConfig: WorldConfig = {
   container: "minecraft-agent-server",
 };
 
-function switchWorld(seed: unknown): Promise<JsonObject> {
+function switchWorld(rawSeed: unknown): Promise<JsonObject> {
+  let seed: number;
+  try {
+    seed = parseSeed(rawSeed);
+  } catch (error: unknown) {
+    throw new RpcError(
+      ErrorCode.InvalidParams,
+      error instanceof Error ? error.message : String(error),
+    );
+  }
   return serialized(async () => {
     // The server is about to restart; the old RCON connection would be dead anyway.
     rcon?.close();

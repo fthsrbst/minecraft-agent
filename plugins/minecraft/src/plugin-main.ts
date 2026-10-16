@@ -48,6 +48,10 @@ const visibility = parseVisibility(process.env.MC_VISIBILITY);
 
 const emit = (event: JsonObject): void => {
   server.notify("event", event);
+  // Without a bot a skill can only fail slowly (primitives wait for their timeouts); stop it now.
+  if (event.type === "disconnected" || event.type === "death") {
+    skills.cancel();
+  }
 };
 const runtime = new MinecraftRuntime(loadBotConfig(process.env), emit);
 const skills = new SkillBroker(
@@ -132,6 +136,9 @@ const handlers = new Map<string, Handler>([
       }
       // Fail before starting a process when the bot is not there to act.
       runtime.assertReady();
+      if (runtime.busy) {
+        throw new RpcError(ErrorCode.NotReady, "An action is running; wait for it or interrupt.");
+      }
       return { runId: skills.start(code, args, timeoutMs) };
     },
   ],

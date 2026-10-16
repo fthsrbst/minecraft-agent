@@ -76,6 +76,10 @@ export function parseAction(params: JsonObject): Action {
       if (/\p{Cc}/u.test(text)) {
         throw invalid("chat: control characters (including newlines) are not allowed.");
       }
+      // The server kicks a player for "§" (formatting codes) and invisible or unassigned characters.
+      if (/[§\p{Cf}\p{Co}\p{Cn}\p{Cs}]/u.test(text)) {
+        throw invalid("chat: formatting codes (§) and invisible characters are not allowed.");
+      }
       // Slash commands are server commands, not chat; the agent never issues them (AGENTS.md decision 8).
       if (text.trimStart().startsWith("/")) {
         throw invalid("chat: commands starting with `/` are not allowed.");

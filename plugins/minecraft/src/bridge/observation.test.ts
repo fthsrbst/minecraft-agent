@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { isExposed, parseObserveOptions, parseVisibility, summarizeBlocks } from "./observation.js";
+import {
+  floodOpenSpace,
+  parseObserveOptions,
+  parseVisibility,
+  summarizeBlocks,
+} from "./observation.js";
 
 describe("summarizeBlocks", () => {
   it("groups by name with count and nearest position, nearest type first", () => {
@@ -26,15 +31,45 @@ describe("summarizeBlocks", () => {
   });
 });
 
-describe("isExposed", () => {
-  it("is exposed when any neighbour is open or unloaded", () => {
-    expect(isExposed(["stone", "stone", "air", "stone", "stone", "stone"])).toBe(true);
-    expect(isExposed(["stone", "water", "stone", "stone", "stone", "stone"])).toBe(true);
-    expect(isExposed(["stone", null, "stone", "stone", "stone", "stone"])).toBe(true);
+describe("floodOpenSpace", () => {
+  // Solid everywhere except the listed open cells.
+  const world = (openCells: string[]) => {
+    const open = new Set(openCells);
+    return (x: number, y: number, z: number) => open.has(`${String(x)},${String(y)},${String(z)}`);
+  };
+
+  it("reaches connected open cells only; a sealed pocket stays hidden", () => {
+    // A corridor along x from the start, and a sealed pocket at (0, 3, 0).
+    const space = floodOpenSpace(
+      { x: 0, y: 0, z: 0 },
+      5,
+      world(["0,0,0", "1,0,0", "2,0,0", "0,3,0"]),
+    );
+    expect([...space.open].sort()).toEqual(["0,0,0", "1,0,0", "2,0,0"]);
+    expect(space.truncated).toBe(false);
   });
 
-  it("is hidden when every neighbour is solid", () => {
-    expect(isExposed(["stone", "dirt", "stone", "granite", "stone", "iron_ore"])).toBe(false);
+  it("returns the solid boundary of the open space: what can be seen", () => {
+    const space = floodOpenSpace({ x: 0, y: 0, z: 0 }, 5, world(["0,0,0", "1,0,0"]));
+    const keys = new Set(space.boundary.map((p) => `${String(p.x)},${String(p.y)},${String(p.z)}`));
+    expect(keys.has("2,0,0")).toBe(true); // end of the corridor
+    expect(keys.has("0,1,0")).toBe(true); // ceiling
+    expect(keys.has("3,0,0")).toBe(false); // behind the first solid block
+    expect(keys.has("0,3,0")).toBe(false); // the sealed pocket's walls
+    expect(space.boundary).toHaveLength(10);
+    expect(space.boundaryKeys.size).toBe(10);
+  });
+
+  it("stops at the radius and reports a cut budget", () => {
+    const everything = () => true;
+    expect(floodOpenSpace({ x: 0, y: 0, z: 0 }, 1, everything).open.size).toBe(7);
+    const cut = floodOpenSpace({ x: 0, y: 0, z: 0 }, 10, everything, 50);
+    expect(cut.open.size).toBeLessThanOrEqual(56);
+    expect(cut.truncated).toBe(true);
+  });
+
+  it("is empty when the start is not open", () => {
+    expect(floodOpenSpace({ x: 0, y: 0, z: 0 }, 5, () => false).open.size).toBe(0);
   });
 });
 

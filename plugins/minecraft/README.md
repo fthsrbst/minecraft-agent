@@ -43,7 +43,8 @@ Events arrive as `event` notifications: `chat`, `health`, `death`, `kicked`, `er
 
 `MC_VISIBILITY=fair` (default, used for evaluation) reports only blocks with a face open to air;
 `full` reports every block in range (AGENTS.md decision 15). An observation with `nearby` takes
-about 80 ms; use `nearby: false` (under 1 ms) for fast loops.
+about 30 ms at radius 16 and 225 ms at radius 32 in fair mode; use `nearby: false` (under 1 ms)
+for fast loops.
 
 ## Scenario component (evaluator only)
 
