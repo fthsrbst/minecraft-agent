@@ -22,7 +22,9 @@ from agent_core.verifier import Verdict
 
 RUNS_PATH = Path("runs/reflex-demo.jsonl")
 TELEMETRY_PATH = Path("runs/telemetry/reflex-demo.jsonl")
-REFLEX_WAIT_S = 20.0
+# A fight may take up to 30 s before the reflex event (sent at the end) arrives.
+REFLEX_WAIT_S = 45.0
+REACTION_TARGET_MS = 100.0
 
 
 async def reflex_idle(bot: PluginClient, within_s: float = 30.0) -> None:
@@ -62,7 +64,12 @@ async def one_run(
     reaction = event.get("reactionMs")
     reaction_ms = float(reaction) if isinstance(reaction, int | float) else None
     interrupted = result.status == "cancelled" and "reflex" in (result.error or "")
-    ok = alive.verdict is Verdict.TRUE and interrupted and reaction_ms is not None
+    ok = (
+        alive.verdict is Verdict.TRUE
+        and interrupted
+        and reaction_ms is not None
+        and reaction_ms <= REACTION_TARGET_MS
+    )
     print(
         f"reflex={event.get('reflex')} target={event.get('target')} reaction={reaction_ms} ms "
         f"duration={event.get('durationMs')} ms outcome={event.get('outcome')!r}; "
@@ -75,7 +82,7 @@ async def one_run(
             alive.verdict if interrupted else Verdict.FALSE,
             telemetry_path=TELEMETRY_PATH,
             attempts=0,
-            failure_reason=None if ok else "reflex did not interrupt the skill in time",
+            failure_reason=None if ok else "reflex did not interrupt the skill within the target",
             notes=notes,
         )
     )
@@ -118,7 +125,7 @@ async def run_all(args: argparse.Namespace) -> bool:
     if reactions:
         print(
             f"reaction: p50 {statistics.median(reactions):.1f} ms, max {max(reactions):.1f} ms "
-            f"over {len(reactions)} runs (target <= 100 ms)"
+            f"over {len(reactions)} runs (target <= {REACTION_TARGET_MS:.0f} ms)"
         )
     return all(passed)
 
@@ -135,7 +142,8 @@ def main() -> int:
     try:
         passed = asyncio.run(run_all(args))
     except (ManifestError, PluginError, ScenarioError, TimeoutError) as error:
-        print(f"error: {error}", file=sys.stderr)
+        # asyncio's TimeoutError has no message: say what timed out.
+        print(f"error: {str(error) or 'no reflex event arrived in time'}", file=sys.stderr)
         return 1
     print("ALL PASS" if passed else "SOME FAILED")
     return 0 if passed else 1

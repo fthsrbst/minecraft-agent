@@ -31,7 +31,22 @@ The `[P1.4]` tag is the work-item ID in `plan.md`.
 
 ## Open
 
-_No unfinished work._
+### [P3.2] Validate command arguments against the game before "On it"
+- **Status**: partial
+- **Opened by**: claude-code · **Date**: 2026-10-16
+- **Done so far**: numbers, positions, names and lengths are validated in the core parser (round 4).
+- **Remaining**: `#follow nobody` and `#mine notablock` say "On it" and fail seconds later. Add a generic, optional
+  plugin capability (e.g. `vocabulary.check {kind, value}` for block kinds and visible players) and call it before
+  starting work; the core stays game-independent.
+- **Where I was**: `core/src/agent_core/agent.py` `_run_command`; review round 4 live QA #11.
+
+### [P2.2] Scenario reset leaves natural mobs behind
+- **Status**: partial
+- **Opened by**: claude-code · **Date**: 2026-10-16
+- **Done so far**: reset kills tagged (scenario) mobs; evaluation runs use fresh seeded worlds, which avoids the problem.
+- **Remaining**: in a reused world, night spawns near the bot make reflex runs noisy. Option: reset also sets
+  `time day` and removes hostile mobs within a radius of the bot.
+- **Where I was**: `plugins/minecraft/src/scenario/commands.ts` reset; review round 4 live QA #12.
 
 ---
 

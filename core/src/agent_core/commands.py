@@ -5,6 +5,7 @@ commands exist and what they do. A position argument may be a remembered place n
 by the caller (places are core memory, P3.3).
 """
 
+import math
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 
@@ -12,6 +13,8 @@ from agent_core.plugins import JsonObject, JsonValue
 
 MAX_ARGS = 8
 MAX_ARG_LENGTH = 64
+# Positions beyond the world border (or NaN/inf, which JSON cannot carry) are refused here.
+MAX_COORDINATE = 30_000_000
 
 
 class CommandError(ValueError):
@@ -82,8 +85,8 @@ def _number(text: str, name: str, *, integer: bool) -> float | int:
     except ValueError:
         kind = "a whole number" if integer else "a number"
         raise CommandError(f"{name} must be {kind}, not {text!r}") from None
-    if not integer and value != value:  # NaN
-        raise CommandError(f"{name} must be a number")
+    if not integer and not math.isfinite(value):
+        raise CommandError(f"{name} must be a finite number")
     return value
 
 
@@ -151,6 +154,8 @@ def _position(queue: list[str], places: PlaceLookup, spec: CommandSpec) -> JsonO
         except ValueError:
             pass
         else:
+            if not all(math.isfinite(v) and abs(v) <= MAX_COORDINATE for v in (x, y, z)):
+                raise CommandError(f"coordinates must be numbers within ±{MAX_COORDINATE}")
             del queue[:3]
             return {"x": x, "y": y, "z": z}
     place = queue.pop(0)

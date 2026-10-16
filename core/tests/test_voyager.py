@@ -377,3 +377,53 @@ def test_parse_skill_keeps_a_closing_tag_inside_a_string() -> None:
 def test_parse_skill_needs_exactly_one_name() -> None:
     with pytest.raises(DraftError, match="exactly one <name>"):
         parse_skill("<name>a1b</name><name>c2d</name><description>d</description><code>x</code>")
+
+
+@dataclass
+class ReflexPlugin:
+    """A plugin whose reflex is busy for a few status polls and cuts the first skill run short."""
+
+    busy_polls: int = 2
+    polls: int = 0
+
+    async def request(self, method: str, params: JsonObject | None = None) -> JsonObject:
+        assert method == "status"
+        self.polls += 1
+        return {"reflexBusy": self.polls <= self.busy_polls}
+
+
+def test_a_skill_cut_short_by_a_reflex_runs_again(monkeypatch: pytest.MonkeyPatch) -> None:
+    results = [
+        SkillResult("r1", "cancelled", None, "interrupted by reflex flee: creeper", 1.0, 1, ()),
+        SkillResult("r2", "ok", None, None, 1.0, 1, ()),
+    ]
+
+    async def fake_run_skill(plugin: object, code: str, *, timeout_s: float) -> SkillResult:
+        return results.pop(0)
+
+    monkeypatch.setattr(loop_module, "run_skill", fake_run_skill)
+    monkeypatch.setattr(loop_module.asyncio, "sleep", _no_sleep)
+    plugin = ReflexPlugin()
+    session = loop_module.PluginSession(plugin)  # type: ignore[arg-type]
+    result = asyncio.run(session.run_skill("code", timeout_s=5))
+    assert result.status == "ok"
+    assert plugin.polls >= 3  # waited while the reflex was busy
+
+
+def test_a_skill_cancelled_for_another_reason_is_not_retried(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    async def fake_run_skill(plugin: object, code: str, *, timeout_s: float) -> SkillResult:
+        calls.append(code)
+        return SkillResult("r1", "cancelled", None, "cancelled by the core", 1.0, 1, ())
+
+    monkeypatch.setattr(loop_module, "run_skill", fake_run_skill)
+    session = loop_module.PluginSession(ReflexPlugin(busy_polls=0))  # type: ignore[arg-type]
+    assert asyncio.run(session.run_skill("code", timeout_s=5)).status == "cancelled"
+    assert calls == ["code"]
+
+
+async def _no_sleep(_seconds: float) -> None:
+    return None

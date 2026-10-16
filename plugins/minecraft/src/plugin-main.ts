@@ -30,6 +30,12 @@ console.info = console.error;
 
 const CONNECT_TIMEOUT_MS = 60_000;
 
+// A stray rejection (e.g. a late packet error inside a library) must not kill the bot mid-game;
+// it is reported to the core's log instead. Synchronous exceptions still crash: state is unknown.
+process.on("unhandledRejection", (reason) => {
+  console.error("unhandled rejection:", reason);
+});
+
 // If the core goes away, writing to stdout fails with EPIPE; the plugin must exit, not crash noisily.
 process.stdout.on("error", () => {
   process.exit(0);
@@ -153,10 +159,11 @@ const handlers = new Map<string, Handler>([
   [
     "act",
     (params) => {
-      requireNoReflex();
       const action = parseAction(params);
-      // Chat does not touch the controls, so the bot may talk while a skill works.
+      // Chat does not touch the controls, so the bot may talk while a skill or a reflex works
+      // (a "Stopped." or "Done" must not be lost because a zombie came by).
       if (action.primitive !== "chat") {
+        requireNoReflex();
         requireNoSkill();
       }
       return runtime.act(action);
