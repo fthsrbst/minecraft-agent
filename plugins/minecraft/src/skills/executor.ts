@@ -1,0 +1,97 @@
+/**
+ * Skill executor: a child process that runs one skill and exits. It holds no bot, no sockets and
+ * no environment; every game action is a `call` message the broker validates and performs. The
+ * broker kills this process on timeout or cancel, so even `while (true) {}` cannot stall the bot.
+ *
+ * The code runs as the body of an async function with `bot`, `args` and `log` in scope, inside a
+ * `vm` context without `process` or `require`. (vm is not a security boundary on its own; the
+ * process boundary and Node's permission model are.)
+ */
+import { createContext, Script } from "node:vm";
+
+import type { JsonObject, JsonValue } from "../rpc/json-rpc.js";
+import type { FromExecutor, ToExecutor } from "./protocol.js";
+
+// Bounds the synchronous part of the code (e.g. a CPU loop before the first await). The broker's
+// timeout bounds the whole run.
+const SYNC_TIMEOUT_MS = 5_000;
+
+let nextId = 1;
+const pending = new Map<number, { resolve: (v: JsonValue) => void; reject: (e: Error) => void }>();
+
+function send(message: FromExecutor): void {
+  process.send?.(message);
+}
+
+function call(name: string, args: JsonObject): Promise<JsonValue> {
+  const id = nextId++;
+  return new Promise<JsonValue>((resolve, reject) => {
+    pending.set(id, { resolve, reject });
+    send({ type: "call", id, name, args });
+  });
+}
+
+// Errors thrown by skill code come from the vm context's realm, where `instanceof Error` is false.
+function describeError(error: unknown): string {
+  if (typeof error === "object" && error !== null && "message" in error) {
+    const name = "name" in error ? String(error.name) : "Error";
+    return `${name}: ${String(error.message)}`;
+  }
+  return stringify(error);
+}
+
+function stringify(value: unknown): string {
+  return typeof value === "string" ? value : JSON.stringify(value);
+}
+
+/** The API skill code sees as `bot`. Positional arguments map to named primitive arguments. */
+const api = Object.freeze({
+  observe: (options: JsonObject = {}) => call("observe", options),
+  goTo: (x: number, y: number, z: number, options: JsonObject = {}) =>
+    call("goTo", { ...options, x, y, z }),
+  collect: (block: string, count = 1, options: JsonObject = {}) =>
+    call("collect", { ...options, block, count }),
+  craft: (item: string, count = 1) => call("craft", { item, count }),
+  place: (item: string, position?: { x: number; y: number; z: number }) =>
+    call("place", position === undefined ? { item } : { item, ...position }),
+  equip: (item: string) => call("equip", { item }),
+  chat: (text: string) => call("chat", { text }),
+  wait: (ms: number) => call("wait", { ms }),
+});
+
+function log(...parts: unknown[]): void {
+  send({ type: "log", message: parts.map(stringify).join(" ").slice(0, 2_000) });
+}
+
+async function run(code: string, args: JsonObject): Promise<void> {
+  const context = createContext(
+    { bot: api, args: Object.freeze({ ...args }), log },
+    // The process flag only covers the main context; the skill's own context needs it too, or
+    // `(async () => {}).constructor("...")` would compile new code from a string.
+    { codeGeneration: { strings: false, wasm: false } },
+  );
+  try {
+    const script = new Script(`(async () => {\n${code}\n})()`, { filename: "skill.js" });
+    const result: unknown = await script.runInContext(context, { timeout: SYNC_TIMEOUT_MS });
+    send({ type: "done", ok: true, result: (result ?? null) as JsonValue });
+  } catch (error: unknown) {
+    send({ type: "done", ok: false, error: describeError(error).slice(0, 2_000) });
+  }
+}
+
+process.on("message", (message: ToExecutor) => {
+  if (message.type === "run") {
+    void run(message.code, message.args);
+    return;
+  }
+  const waiter = pending.get(message.id);
+  if (waiter === undefined) {
+    return;
+  }
+  pending.delete(message.id);
+  if (message.ok) {
+    waiter.resolve(message.value ?? null);
+  } else {
+    waiter.reject(new Error(message.error ?? "primitive failed"));
+  }
+});

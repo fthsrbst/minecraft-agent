@@ -27,16 +27,19 @@ that starts each process, and the environment variables each process may receive
 process speaks newline-delimited JSON-RPC 2.0 on stdin/stdout; stdout carries protocol messages
 only, logs go to stderr.
 
-| Method      | Params                                                          | Result                                                                                       |
-| ----------- | --------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `handshake` | `{ protocolVersion }`                                           | identity, game, `visibility`, `methods`, `primitives` (with JSON Schemas); joins the server  |
-| `observe`   | `{ nearby? = true, radius? = 16 }`                              | `username, tick, visibility, position, yaw, dimension, health, food, timeOfDay, standingOn,` |
-|             |                                                                 | `equipment, inventory` and, with `nearby`, `nearbyBlocks` (grouped) and `nearbyEntities`     |
-| `act`       | `{ primitive: "chat", args: { text } }`                         | `{ ok }`; no `/` commands, no control characters                                             |
-| `act`       | `{ primitive: "move", args: { direction, durationMs, jump? } }` | `{ ok, interrupted, position }`                                                              |
-| `interrupt` | –                                                               | `{ interrupted }`: stops the running action at once                                          |
+| Method         | Params                                                          | Result                                                                                       |
+| -------------- | --------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `handshake`    | `{ protocolVersion }`                                           | identity, game, `visibility`, `methods`, `primitives` (with JSON Schemas); joins the server  |
+| `observe`      | `{ nearby? = true, radius? = 16 }`                              | `username, tick, visibility, position, yaw, dimension, health, food, timeOfDay, standingOn,` |
+|                |                                                                 | `equipment, inventory` and, with `nearby`, `nearbyBlocks` (grouped) and `nearbyEntities`     |
+| `act`          | `{ primitive: "chat", args: { text } }`                         | `{ ok }`; no `/` commands, no control characters                                             |
+| `act`          | `{ primitive: "move", args: { direction, durationMs, jump? } }` | `{ ok, interrupted, position }`                                                              |
+| `skill.run`    | `{ code, args?, timeoutMs? = 120000 }`                          | `{ runId }` at once; the outcome arrives as a `skill.done` event                             |
+| `skill.cancel` | `{ runId? }`                                                    | `{ cancelled }`                                                                              |
+| `interrupt`    | –                                                               | `{ interrupted }`: stops the running action at once                                          |
 
-Events arrive as `event` notifications: `chat`, `health`, `death`, `kicked`, `error`, `disconnected`.
+Events arrive as `event` notifications: `chat`, `health`, `death`, `kicked`, `error`, `disconnected`,
+`skill.started`, `skill.log`, `skill.done` (`status`: ok, error, timeout, cancelled, crashed).
 
 `MC_VISIBILITY=fair` (default, used for evaluation) reports only blocks with a face open to air;
 `full` reports every block in range (AGENTS.md decision 15). An observation with `nearby` takes
@@ -60,3 +63,27 @@ power (AGENTS.md decision 15). It reads `MC_RCON_HOST` (local only), `MC_RCON_PO
 Every value is validated before it reaches a command (items, blocks and entities are checked
 against the 1.21.11 data), summoned entities are tagged so reset removes exactly them, and a server
 reply such as "No player was found" fails the call. Scenario files live in `scenarios/`.
+
+## Skills
+
+A skill is the body of an async function with `bot`, `args` and `log` in scope (see `skills/`).
+`skill.run` executes it in a **separate executor process** that holds nothing: no bot, no
+environment, Node's permission model (no file writes, no child processes), a 256 MB heap, no code
+generation from strings, and a hard timeout after which the broker kills it. Every game action is
+an IPC call that the broker validates and performs:
+
+| API                           | What it does                                                   |
+| ----------------------------- | -------------------------------------------------------------- |
+| `bot.observe(options?)`       | Current state (`{ nearby?, radius? }`)                         |
+| `bot.goTo(x, y, z, options?)` | Pathfind near a point; fails when stuck or after 60 s          |
+| `bot.collect(block, count?)`  | Find, mine and pick up blocks within 64 blocks                 |
+| `bot.craft(item, count?)`     | Craft; uses a crafting table within 32 blocks when needed      |
+| `bot.place(item, position?)`  | Place a block at a position, or on free ground next to the bot |
+| `bot.equip(item)`             | Hold an item                                                   |
+| `bot.chat(text)`              | Chat line (no commands)                                        |
+| `bot.wait(ms)`                | Wait up to 10 s                                                |
+| `log(...values)`              | Line in the run's log                                          |
+
+While a skill runs, `act` is refused; `interrupt` or `skill.cancel` stops the skill. Hand-written
+skills: `skills/collect-logs.js`, `skills/wooden-pickaxe.js`, and `skills/endless-loop.js` (a test
+fixture that must be killed).

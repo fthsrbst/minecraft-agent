@@ -3,6 +3,8 @@
  * observations, executes validated actions, and forwards game events to the core.
  */
 import { type Bot, createBot } from "mineflayer";
+import { plugin as collectBlock } from "mineflayer-collectblock";
+import pathfinderModule from "mineflayer-pathfinder";
 
 import type { BotConfig } from "../bot-config.js";
 import { GAME_VERSION } from "../plugin-info.js";
@@ -13,6 +15,7 @@ import { buildObservation, type ObserveOptions } from "./observation.js";
 export type EmitEvent = (event: JsonObject) => void;
 
 const CHUNK_WAIT_MS = 10_000;
+const { pathfinder, Movements } = pathfinderModule;
 
 export class MinecraftRuntime {
   private bot: Bot | null = null;
@@ -39,6 +42,11 @@ export class MinecraftRuntime {
 
   observe(options: ObserveOptions): JsonObject {
     return buildObservation(this.requireBot(), options);
+  }
+
+  /** Throws NotReady when the bot is not connected and spawned. */
+  assertReady(): void {
+    this.requireBot();
   }
 
   /** The connected bot, for in-process primitives (the skill broker). */
@@ -123,6 +131,8 @@ export class MinecraftRuntime {
       auth: "offline",
       version: GAME_VERSION,
     });
+    bot.loadPlugin(pathfinder);
+    bot.loadPlugin(collectBlock);
 
     return new Promise<void>((resolve, reject) => {
       let settled = false;
@@ -162,6 +172,8 @@ export class MinecraftRuntime {
         bot.removeAllListeners("end");
         this.bot = bot;
         this.forwardEvents(bot);
+        // Skill primitives navigate with the pathfinder and mine with collectblock (P2.3).
+        bot.pathfinder.setMovements(new Movements(bot));
         // Spawn arrives before the surrounding chunks; an observation taken now would see no blocks.
         // The wait is bounded so a slow server delays the handshake but never hangs it.
         void Promise.race([

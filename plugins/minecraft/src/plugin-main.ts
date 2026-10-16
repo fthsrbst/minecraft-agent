@@ -8,6 +8,8 @@ import { readFileSync } from "node:fs";
 import { ACT_PRIMITIVES, parseAction } from "./bridge/actions.js";
 import { MinecraftRuntime } from "./bridge/minecraft-runtime.js";
 import { parseObserveOptions, parseVisibility } from "./bridge/observation.js";
+import { DEFAULT_TIMEOUT_MS, SkillBroker } from "./skills/broker.js";
+import { createPrimitives, SKILL_API } from "./skills/primitives.js";
 import { loadBotConfig } from "./bot-config.js";
 import {
   ErrorCode,
@@ -44,9 +46,25 @@ const manifest = JSON.parse(
 
 const visibility = parseVisibility(process.env.MC_VISIBILITY);
 
-const runtime = new MinecraftRuntime(loadBotConfig(process.env), (event) => {
+const emit = (event: JsonObject): void => {
   server.notify("event", event);
-});
+};
+const runtime = new MinecraftRuntime(loadBotConfig(process.env), emit);
+const skills = new SkillBroker(
+  createPrimitives(() => runtime.liveBot, visibility),
+  emit,
+);
+
+/** A skill owns the bot's controls while it runs; single actions wait until it is done. */
+function requireNoSkill(): void {
+  const running = skills.runningId;
+  if (running !== null) {
+    throw new RpcError(
+      ErrorCode.NotReady,
+      `Skill ${running} is running; call skill.cancel or interrupt first.`,
+    );
+  }
+}
 
 const handlers = new Map<string, Handler>([
   [
@@ -65,8 +83,9 @@ const handlers = new Map<string, Handler>([
         game: manifest.game,
         component: "main",
         visibility,
-        methods: ["handshake", "observe", "act", "interrupt"],
+        methods: ["handshake", "observe", "act", "interrupt", "skill.run", "skill.cancel"],
         primitives: ACT_PRIMITIVES,
+        skillApi: SKILL_API,
       };
     },
   ],
@@ -83,8 +102,49 @@ const handlers = new Map<string, Handler>([
       }
     },
   ],
-  ["act", (params) => runtime.act(parseAction(params))],
-  ["interrupt", () => ({ interrupted: runtime.interrupt() })],
+  [
+    "act",
+    (params) => {
+      requireNoSkill();
+      return runtime.act(parseAction(params));
+    },
+  ],
+  [
+    "interrupt",
+    () => {
+      const skill = skills.cancel();
+      const action = runtime.interrupt();
+      return { interrupted: skill || action };
+    },
+  ],
+  [
+    "skill.run",
+    (params) => {
+      const { code, args = {}, timeoutMs = DEFAULT_TIMEOUT_MS } = params;
+      if (typeof code !== "string") {
+        throw new RpcError(ErrorCode.InvalidParams, "skill.run: `code` must be a string.");
+      }
+      if (typeof args !== "object" || args === null || Array.isArray(args)) {
+        throw new RpcError(ErrorCode.InvalidParams, "skill.run: `args` must be an object.");
+      }
+      if (typeof timeoutMs !== "number") {
+        throw new RpcError(ErrorCode.InvalidParams, "skill.run: `timeoutMs` must be a number.");
+      }
+      // Fail before starting a process when the bot is not there to act.
+      runtime.assertReady();
+      return { runId: skills.start(code, args, timeoutMs) };
+    },
+  ],
+  [
+    "skill.cancel",
+    (params) => {
+      const { runId } = params;
+      if (runId !== undefined && typeof runId !== "string") {
+        throw new RpcError(ErrorCode.InvalidParams, "skill.cancel: `runId` must be a string.");
+      }
+      return { cancelled: skills.cancel(runId) };
+    },
+  ],
 ]);
 
 const server = new JsonRpcServer(handlers, (line) => {
@@ -92,6 +152,7 @@ const server = new JsonRpcServer(handlers, (line) => {
 });
 
 const shutdown = (reason: string): void => {
+  skills.cancel();
   runtime.quit(reason);
   // Give the quit packet a moment to leave before the process exits.
   setTimeout(() => process.exit(0), 200).unref();

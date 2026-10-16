@@ -10,7 +10,8 @@ import contextlib
 import logging
 import os
 from collections import deque
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from types import TracebackType
 from typing import Self
@@ -64,6 +65,7 @@ class PluginClient:
         self._next_id = 1
         self._pending: dict[int, tuple[str, asyncio.Future[JsonValue]]] = {}
         self._events: asyncio.Queue[JsonObject] = asyncio.Queue(maxsize=MAX_QUEUED_EVENTS)
+        self._event_waiters: list[EventWaiter] = []
         self._stderr_tail: deque[str] = deque(maxlen=STDERR_TAIL_LINES)
         self._exit_error: PluginExitedError | None = None
         self._closing = False
@@ -166,6 +168,15 @@ class PluginClient:
         )
         return self._expect_object("act", result)
 
+    def expect_event(self, match: Callable[[JsonObject], bool]) -> "EventWaiter":
+        """Registers interest in an event *before* the request that causes it is sent.
+
+        Events still go to the queue as well; the waiter only gets a copy of the first match.
+        """
+        waiter = EventWaiter(self, match, asyncio.get_running_loop().create_future())
+        self._event_waiters.append(waiter)
+        return waiter
+
     async def next_event(self, timeout_s: float) -> JsonObject:
         """Waits for the next game event; raises TimeoutError if none arrives in time."""
         async with asyncio.timeout(timeout_s):
@@ -225,6 +236,21 @@ class PluginClient:
         for _, future in self._pending.values():
             if not future.done():
                 future.set_exception(error)
+        for waiter in self._event_waiters:
+            if not waiter.future.done():
+                waiter.future.set_exception(error)
+        self._event_waiters.clear()
+
+    def _notify_waiters(self, event: JsonObject) -> None:
+        for waiter in list(self._event_waiters):
+            if waiter.match(event):
+                self._event_waiters.remove(waiter)
+                if not waiter.future.done():
+                    waiter.future.set_result(event)
+
+    def _forget_waiter(self, waiter: "EventWaiter") -> None:
+        if waiter in self._event_waiters:
+            self._event_waiters.remove(waiter)
 
     async def _read_stdout(self) -> None:
         stdout = self._process.stdout
@@ -251,6 +277,7 @@ class PluginClient:
         request_id = message.get("id")
         if "method" in message and request_id is None:
             if message["method"] == "event" and isinstance(params := message.get("params"), dict):
+                self._notify_waiters(params)
                 if self._events.full():
                     self._events.get_nowait()
                     self._log.warning("event queue full; dropped the oldest event")
@@ -293,3 +320,17 @@ class PluginClient:
             text = line.decode(errors="replace").rstrip()
             self._stderr_tail.append(text)
             self._log.info("%s", text)
+
+
+@dataclass(eq=False, slots=True)
+class EventWaiter:
+    client: PluginClient
+    match: Callable[[JsonObject], bool]
+    future: asyncio.Future[JsonObject]
+
+    async def wait(self, timeout_s: float) -> JsonObject:
+        try:
+            async with asyncio.timeout(timeout_s):
+                return await self.future
+        finally:
+            self.client._forget_waiter(self)  # pyright: ignore[reportPrivateUsage]
