@@ -30,6 +30,11 @@ HANDSHAKE_TIMEOUT_S = 90.0
 # asyncio's default 64 KiB line limit is too small for large observations.
 MAX_LINE_BYTES = 16 * 1024 * 1024
 STDERR_TAIL_LINES = 20
+# Events nobody reads must not grow memory without bound; the oldest are dropped first.
+MAX_QUEUED_EVENTS = 1000
+# Variables every child process needs to run at all. Everything else (API keys, passwords) is
+# passed only when the manifest lists it for that component, so secrets reach no process by default.
+BASE_ENV = ("PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "SYSTEMROOT", "TEMP", "TMP")
 
 
 class PluginError(Exception):
@@ -58,9 +63,10 @@ class PluginClient:
         self._log = logging.getLogger(f"agent_core.plugins.{manifest.id}")
         self._next_id = 1
         self._pending: dict[int, tuple[str, asyncio.Future[JsonValue]]] = {}
-        self._events: asyncio.Queue[JsonObject] = asyncio.Queue()
+        self._events: asyncio.Queue[JsonObject] = asyncio.Queue(maxsize=MAX_QUEUED_EVENTS)
         self._stderr_tail: deque[str] = deque(maxlen=STDERR_TAIL_LINES)
         self._exit_error: PluginExitedError | None = None
+        self._closing = False
         self._readers = [
             asyncio.create_task(self._read_stdout(), name=f"{manifest.id}-stdout"),
             asyncio.create_task(self._read_stderr(), name=f"{manifest.id}-stderr"),
@@ -74,12 +80,18 @@ class PluginClient:
         component: str | None = None,
         env: Mapping[str, str] | None = None,
     ) -> Self:
-        """Starts the plugin's main process, or one of its named `components`."""
+        """Starts the plugin's main process, or one of its named `components`.
+
+        The child sees only `BASE_ENV` plus the variables its manifest entry lists, taken from
+        `env` (default: this process's environment).
+        """
         manifest = load_manifest(plugin_dir)
+        source = os.environ if env is None else env
+        allowed = (*BASE_ENV, *manifest.env_for(component))
         process = await asyncio.create_subprocess_exec(
             *manifest.command_for(component),
             cwd=manifest.directory,
-            env=dict(os.environ if env is None else env),
+            env={name: source[name] for name in allowed if name in source},
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -107,6 +119,8 @@ class PluginClient:
     ) -> JsonValue:
         if self._exit_error is not None:
             raise self._exit_error
+        if self._closing:
+            raise PluginError(f"{self.manifest.id}: the client is closed.")
         stdin = self._process.stdin
         if stdin is None:  # pragma: no cover - start() always opens the pipes
             raise PluginError("Plugin stdin is not a pipe.")
@@ -116,9 +130,10 @@ class PluginClient:
         future: asyncio.Future[JsonValue] = asyncio.get_running_loop().create_future()
         self._pending[request_id] = (method, future)
         try:
-            stdin.write(encode_request(request_id, method, params or {}))
-            await stdin.drain()
+            # The write is inside the timeout too: a plugin that stops reading stdin fills the pipe.
             async with asyncio.timeout(timeout_s):
+                stdin.write(encode_request(request_id, method, params or {}))
+                await stdin.drain()
                 return await future
         except TimeoutError:
             raise TimeoutError(
@@ -164,6 +179,7 @@ class PluginClient:
 
     async def close(self, timeout_s: float = 5.0) -> None:
         """Asks the plugin to stop (closes stdin, then SIGTERM), and kills it if it does not."""
+        self._closing = True
         if self._process.returncode is None:
             if self._process.stdin is not None and not self._process.stdin.is_closing():
                 self._process.stdin.close()
@@ -183,8 +199,10 @@ class PluginClient:
         for task in self._readers:
             task.cancel()
         for task in self._readers:
-            with contextlib.suppress(asyncio.CancelledError):
+            # A reader that already failed was logged in _read_stdout; close() must still finish.
+            with contextlib.suppress(asyncio.CancelledError, Exception):
                 await task
+        self._fail_pending(self._exited())
 
     def _expect_object(self, method: str, result: JsonValue) -> JsonObject:
         if not isinstance(result, dict):
@@ -202,32 +220,49 @@ class PluginClient:
             )
         return self._exit_error
 
+    def _fail_pending(self, error: PluginError) -> None:
+        for _, future in self._pending.values():
+            if not future.done():
+                future.set_exception(error)
+
     async def _read_stdout(self) -> None:
         stdout = self._process.stdout
         if stdout is None:  # pragma: no cover - start() always opens the pipes
             return
-        while line := await stdout.readline():
-            message = decode_message(line)
-            if message is None:
-                self._log.warning("ignoring non-protocol stdout line: %r", line[:200])
-                continue
-            self._dispatch(message)
+        try:
+            while line := await stdout.readline():
+                message = decode_message(line)
+                if message is None:
+                    self._log.warning("ignoring non-protocol stdout line: %r", line[:200])
+                    continue
+                self._dispatch(message)
+        except Exception:
+            # An unreadable stream (e.g. a line over MAX_LINE_BYTES) means the protocol is broken;
+            # stop the plugin instead of leaving every request to wait for its timeout.
+            self._log.exception("plugin stdout is unreadable; stopping the plugin")
+            if self._process.returncode is None:
+                self._process.kill()
         # stdout closed: the plugin is gone. Wait for the exit code so the error can report it.
         await self._process.wait()
-        error = self._exited()
-        for _, future in self._pending.values():
-            if not future.done():
-                future.set_exception(error)
+        self._fail_pending(self._exited())
 
     def _dispatch(self, message: JsonObject) -> None:
         request_id = message.get("id")
         if "method" in message and request_id is None:
             if message["method"] == "event" and isinstance(params := message.get("params"), dict):
+                if self._events.full():
+                    self._events.get_nowait()
+                    self._log.warning("event queue full; dropped the oldest event")
                 self._events.put_nowait(params)
             else:
                 self._log.warning("ignoring unknown notification: %s", message.get("method"))
             return
-        if not isinstance(request_id, int) or request_id not in self._pending:
+        # bool is a subclass of int in Python; `true` must not match request 1.
+        if (
+            isinstance(request_id, bool)
+            or not isinstance(request_id, int)
+            or request_id not in self._pending
+        ):
             self._log.warning("ignoring response with unknown id: %r", request_id)
             return
 

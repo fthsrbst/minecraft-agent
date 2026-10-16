@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { decodePackets, encodePacket, PacketType } from "./rcon.js";
+import { decodePackets, encodePacket, PacketType, RconError } from "./rcon.js";
 
 describe("RCON packets", () => {
   it("round-trips a packet", () => {
@@ -28,5 +28,11 @@ describe("RCON packets", () => {
     const second = decodePackets(Buffer.concat([first.rest, whole.subarray(20)]));
     expect(second.packets.map((p) => p.body)).toEqual(["bb"]);
     expect(second.rest.length).toBe(0);
+  });
+
+  it.each([-8, 0, 9, 5000])("rejects a corrupt length %i instead of looping", (length) => {
+    const bytes = Buffer.alloc(16);
+    bytes.writeInt32LE(length, 0);
+    expect(() => decodePackets(bytes)).toThrow(RconError);
   });
 });

@@ -20,7 +20,8 @@ def decode_message(line: bytes) -> JsonObject | None:
     """Decodes one line; returns None if it is not a JSON object (the caller logs and skips it)."""
     try:
         message: object = json.loads(line)
-    except json.JSONDecodeError:
+    except (ValueError, RecursionError):
+        # ValueError covers invalid JSON and non-UTF-8 bytes; RecursionError very deep nesting.
         return None
     if not isinstance(message, dict):
         return None

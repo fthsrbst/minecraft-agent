@@ -38,6 +38,8 @@ describe("setupCommands", () => {
     ["bad weather", { weather: "snow" }, /weather/],
     ["bad clear", { clear: "yes" }, /clear/],
     ["unknown field", { summon: "zombie" }, /unknown setup field\(s\): summon/],
+    ["inherited item name", { give: [{ item: "constructor" }] }, /unknown item "constructor"/],
+    ["inherited time name", { time: "constructor" }, /time/],
   ])("rejects %s", (_name, spec, message) => {
     expect(() => setupCommands("AgentBot", spec)).toThrow(message);
   });

@@ -31,3 +31,6 @@ models/
 .DS_Store
 .idea/
 .vscode/
+
+# Agent worktrees (Claude Code)
+.claude/worktrees/

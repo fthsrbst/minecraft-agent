@@ -4,6 +4,7 @@ The provider SDK lives behind `LlmBackend`, so tests use a fake backend and a se
 would be one more adapter, not changes here.
 """
 
+import logging
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -12,6 +13,8 @@ from typing import Literal, Protocol
 
 from agent_core.llm.pricing import Usage, cost_usd
 from agent_core.telemetry import LlmCallRecord, TelemetryRecorder, new_trace_id
+
+_log = logging.getLogger(__name__)
 
 
 class ModelRole(StrEnum):
@@ -123,8 +126,9 @@ class LlmClient:
         started = time.perf_counter()
         try:
             result = await self._backend.create(request)
-        except Exception as error:
-            self._telemetry.record(
+        except BaseException as error:
+            # BaseException: a cancelled or timed-out call still cost time and maybe money.
+            self._record(
                 LlmCallRecord(
                     trace_id=trace,
                     purpose=purpose,
@@ -143,7 +147,7 @@ class LlmClient:
         # A fallback answer is billed at the serving model's prices.
         cost = cost_usd(result.served_model, result.usage)
         refused = result.stop_reason == "refusal"
-        self._telemetry.record(
+        self._record(
             LlmCallRecord(
                 trace_id=trace,
                 purpose=purpose,
@@ -176,6 +180,15 @@ class LlmClient:
             latency_ms=latency_ms,
             trace_id=trace,
         )
+
+    def _record(self, record: LlmCallRecord) -> None:
+        # A telemetry failure must not hide the LLM result or the original error; it is logged.
+        try:
+            self._telemetry.record(record)
+        except Exception:
+            _log.exception(
+                "telemetry write failed for trace %s (%s)", record.trace_id, record.purpose
+            )
 
 
 def _elapsed_ms(started: float) -> float:

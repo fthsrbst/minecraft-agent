@@ -16,6 +16,8 @@ const round = (value: number): number => Math.round(value * 100) / 100;
 export class MinecraftRuntime {
   private bot: Bot | null = null;
   private connecting: Promise<void> | null = null;
+  // Actions share the bot's control state, so they run one at a time in arrival order.
+  private actQueue: Promise<unknown> = Promise.resolve();
 
   constructor(
     private readonly config: BotConfig,
@@ -37,17 +39,28 @@ export class MinecraftRuntime {
     const { x, y, z } = bot.entity.position;
     return {
       username: bot.username,
+      // World age in ticks: tells two observations apart and orders them.
+      tick: bot.time.age,
       position: { x: round(x), y: round(y), z: round(z) },
       yaw: round(bot.entity.yaw),
       dimension: bot.game.dimension,
       health: bot.health,
       food: bot.food,
       timeOfDay: bot.time.timeOfDay,
-      inventory: bot.inventory.items().map((item) => ({ name: item.name, count: item.count })),
+      // All slots, not items(): items() skips armor, offhand and the crafting grid.
+      inventory: bot.inventory.slots.flatMap((item) =>
+        item === null ? [] : [{ name: item.name, count: item.count }],
+      ),
     };
   }
 
-  async act(action: Action): Promise<JsonObject> {
+  act(action: Action): Promise<JsonObject> {
+    const run = this.actQueue.then(() => this.runAction(action));
+    this.actQueue = run.catch(() => undefined);
+    return run;
+  }
+
+  private async runAction(action: Action): Promise<JsonObject> {
     const bot = this.requireBot();
     switch (action.primitive) {
       case "chat":
@@ -89,9 +102,16 @@ export class MinecraftRuntime {
     });
 
     return new Promise<void>((resolve, reject) => {
+      let settled = false;
       const fail = (message: string): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
         clearTimeout(timer);
         bot.removeAllListeners();
+        // Without an error listener a late socket error would crash the whole plugin process.
+        bot.on("error", () => undefined);
         bot.end();
         reject(new RpcError(ErrorCode.NotReady, message));
       };
@@ -107,10 +127,15 @@ export class MinecraftRuntime {
       bot.once("kicked", (reason) => {
         fail(`Kicked while joining: ${JSON.stringify(reason)}`);
       });
+      bot.once("end", (reason) => {
+        fail(`Disconnected while joining: ${reason}`);
+      });
       bot.once("spawn", () => {
+        settled = true;
         clearTimeout(timer);
         bot.removeAllListeners("error");
         bot.removeAllListeners("kicked");
+        bot.removeAllListeners("end");
         this.bot = bot;
         this.forwardEvents(bot);
         resolve();

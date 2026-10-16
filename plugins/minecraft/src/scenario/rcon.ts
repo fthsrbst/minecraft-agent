@@ -27,11 +27,19 @@ export function encodePacket({ id, type, body }: Packet): Buffer {
 }
 
 /** Splits a byte stream into complete packets; returns them plus the unconsumed remainder. */
+// id + type + two NULs, and the largest packet the protocol allows.
+const MIN_LENGTH = 10;
+const MAX_LENGTH = 4096 + MIN_LENGTH;
+
 export function decodePackets(buffer: Buffer): { packets: Packet[]; rest: Buffer } {
   const packets: Packet[] = [];
   let offset = 0;
   while (buffer.length - offset >= 4) {
     const length = buffer.readInt32LE(offset);
+    // A corrupt length would loop forever or wait for gigabytes; the stream cannot be resynced.
+    if (length < MIN_LENGTH || length > MAX_LENGTH) {
+      throw new RconError(`Corrupt RCON packet length ${String(length)}.`);
+    }
     if (buffer.length - offset - 4 < length) {
       break;
     }
@@ -53,7 +61,10 @@ export class RconError extends Error {
 export class RconClient {
   private nextId = 1;
   private buffer: Buffer = Buffer.alloc(0);
-  private readonly waiting = new Map<number, (packet: Packet) => void>();
+  private readonly waiting = new Map<
+    number,
+    { resolve: (packet: Packet) => void; reject: (error: RconError) => void }
+  >();
   private closedError: RconError | null = null;
 
   private constructor(
@@ -61,19 +72,30 @@ export class RconClient {
     private readonly timeoutMs: number,
   ) {
     socket.on("data", (chunk: Buffer) => {
-      const { packets, rest } = decodePackets(Buffer.concat([this.buffer, chunk]));
+      let decoded: { packets: Packet[]; rest: Buffer };
+      try {
+        decoded = decodePackets(Buffer.concat([this.buffer, chunk]));
+      } catch (error: unknown) {
+        socket.destroy(error instanceof Error ? error : new Error(String(error)));
+        return;
+      }
+      const { packets, rest } = decoded;
       this.buffer = rest;
       for (const packet of packets) {
         // A failed login answers with id -1, which matches no waiter; route it to the auth request.
         const id = packet.id === -1 ? [...this.waiting.keys()][0] : packet.id;
         if (id !== undefined) {
-          this.waiting.get(id)?.(packet);
+          this.waiting.get(id)?.resolve(packet);
         }
       }
     });
     const fail = (error: RconError): void => {
       this.closedError ??= error;
+      const waiters = [...this.waiting.values()];
       this.waiting.clear();
+      for (const waiter of waiters) {
+        waiter.reject(this.closedError);
+      }
     };
     socket.on("error", (error) => {
       fail(new RconError(`RCON connection error: ${error.message}`));
@@ -146,14 +168,20 @@ export class RconClient {
           new RconError(`RCON gave no answer to "${body}" within ${String(this.timeoutMs)} ms.`),
         );
       }, this.timeoutMs);
-      this.waiting.set(id, (packet) => {
-        // The server sends an empty RESPONSE before the AUTH reply; wait for the auth result itself.
-        if (type === PacketType.Auth && packet.type !== 2) {
-          return;
-        }
-        clearTimeout(timer);
-        this.waiting.delete(id);
-        resolve(packet);
+      this.waiting.set(id, {
+        resolve: (packet) => {
+          // The server may send an empty RESPONSE before the AUTH reply; wait for the auth result.
+          if (type === PacketType.Auth && packet.type !== 2) {
+            return;
+          }
+          clearTimeout(timer);
+          this.waiting.delete(id);
+          resolve(packet);
+        },
+        reject: (error) => {
+          clearTimeout(timer);
+          reject(error);
+        },
       });
       this.socket.write(encodePacket({ id, type, body }));
     });

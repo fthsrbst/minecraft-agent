@@ -27,6 +27,14 @@ class PluginManifest:
     directory: Path
     # Optional extra processes, e.g. "scenario" for the evaluator; started on request only.
     components: Mapping[str, tuple[str, ...]] = field(default_factory=dict[str, tuple[str, ...]])
+    # Environment variables each process may receive (key None = the main process).
+    env: Mapping[str | None, tuple[str, ...]] = field(
+        default_factory=dict[str | None, tuple[str, ...]]
+    )
+
+    def env_for(self, component: str | None) -> tuple[str, ...]:
+        self.command_for(component)  # raises for an unknown component
+        return self.env.get(component, ())
 
     def command_for(self, component: str | None) -> tuple[str, ...]:
         if component is None:
@@ -63,15 +71,23 @@ def _require_command(data: JsonObject, key: str, source: Path) -> tuple[str, ...
     return command
 
 
-def _parse_components(value: JsonValue, source: Path) -> dict[str, tuple[str, ...]]:
+def _optional_env(data: JsonObject, source: Path) -> tuple[str, ...]:
+    return _require_str_list(data, "env", source) if "env" in data else ()
+
+
+def _parse_components(
+    value: JsonValue, source: Path
+) -> tuple[dict[str, tuple[str, ...]], dict[str | None, tuple[str, ...]]]:
     if not isinstance(value, dict):
         raise ManifestError(f"{source}: `components` must be an object.")
-    components: dict[str, tuple[str, ...]] = {}
+    commands: dict[str, tuple[str, ...]] = {}
+    env: dict[str | None, tuple[str, ...]] = {}
     for name, spec in value.items():
         if not isinstance(spec, dict):
             raise ManifestError(f"{source}: component `{name}` must be an object.")
-        components[name] = _require_command(spec, "command", source)
-    return components
+        commands[name] = _require_command(spec, "command", source)
+        env[name] = _optional_env(spec, source)
+    return commands, env
 
 
 def load_manifest(plugin_dir: Path) -> PluginManifest:
@@ -92,7 +108,8 @@ def load_manifest(plugin_dir: Path) -> PluginManifest:
         )
 
     command = _require_command(raw, "command", source)
-    components = _parse_components(raw.get("components", {}), source)
+    components, env = _parse_components(raw.get("components", {}), source)
+    env[None] = _optional_env(raw, source)
 
     game = raw.get("game", {})
     if not isinstance(game, dict):
@@ -107,4 +124,5 @@ def load_manifest(plugin_dir: Path) -> PluginManifest:
         capabilities=_require_str_list(raw, "capabilities", source),
         directory=plugin_dir.resolve(),
         components=components,
+        env=env,
     )

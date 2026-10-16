@@ -57,8 +57,17 @@ async function connectRcon(): Promise<RconClient> {
   return rcon;
 }
 
+// Setup and reset must not interleave on the one RCON connection, so calls run one after another.
+let queue: Promise<unknown> = Promise.resolve();
+
+function run(commands: readonly string[]): Promise<JsonObject> {
+  const next = queue.then(() => runNow(commands));
+  queue = next.catch(() => undefined);
+  return next;
+}
+
 /** Runs commands in order and stops at the first one the server rejects. */
-async function run(commands: readonly string[]): Promise<JsonObject> {
+async function runNow(commands: readonly string[]): Promise<JsonObject> {
   const client = await connectRcon();
   const results: JsonObject[] = [];
   for (const command of commands) {
