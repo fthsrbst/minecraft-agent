@@ -4,6 +4,7 @@ Methods: handshake, observe, act (echoes), fail (JSON-RPC error), slow (sleeps),
 """
 
 import json
+import os
 import sys
 import time
 
@@ -34,6 +35,19 @@ def main() -> None:
         elif method == "slow":
             time.sleep(float(params["seconds"]))
             send({"jsonrpc": "2.0", "id": request_id, "result": "slow done"})
+        elif method == "garbage":
+            # Not UTF-8: the client must skip the line, not lose its reader.
+            sys.stdout.buffer.write(b"\xff\xfe not utf-8\n")
+            sys.stdout.flush()
+            send({"jsonrpc": "2.0", "id": request_id, "result": "after garbage"})
+        elif method == "env":
+            send({"jsonrpc": "2.0", "id": request_id, "result": dict(os.environ)})
+        elif method == "spam_events":
+            for n in range(int(params["n"])):
+                send({"jsonrpc": "2.0", "method": "event", "params": {"n": n}})
+            send({"jsonrpc": "2.0", "id": request_id, "result": "spammed"})
+        elif method == "bool_id":
+            send({"jsonrpc": "2.0", "id": True, "result": "wrong"})
         elif method == "crash":
             print("fatal: something broke", file=sys.stderr, flush=True)
             sys.exit(3)

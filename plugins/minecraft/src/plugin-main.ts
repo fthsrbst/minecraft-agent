@@ -24,12 +24,16 @@ console.info = console.error;
 
 const CONNECT_TIMEOUT_MS = 60_000;
 
+// If the core goes away, writing to stdout fails with EPIPE; the plugin must exit, not crash noisily.
+process.stdout.on("error", () => {
+  process.exit(0);
+});
+
 interface Manifest {
   readonly id: string;
   readonly version: string;
   readonly protocolVersion: string;
   readonly game: JsonObject;
-  readonly capabilities: string[];
 }
 
 // plugin.json is the single source of the plugin's identity; it sits next to dist/.
@@ -56,7 +60,7 @@ const handlers = new Map<string, Handler>([
         protocolVersion: manifest.protocolVersion,
         plugin: { id: manifest.id, version: manifest.version },
         game: manifest.game,
-        capabilities: manifest.capabilities,
+        component: "main",
         methods: ["handshake", "observe", "act"],
         primitives: ["chat", "move"],
       };

@@ -48,6 +48,8 @@ class Near:
     y: float
     z: float
     radius: float
+    # Coordinates are only comparable within one dimension (world/level) when the game has several.
+    dimension: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,7 +111,12 @@ def parse_predicate(spec: JsonValue) -> Predicate:
             radius = _number(spec, "radius")
             if radius <= 0:
                 raise PredicateError("near: `radius` must be positive.")
-            return Near(_number(spec, "x"), _number(spec, "y"), _number(spec, "z"), radius)
+            dimension = spec.get("dimension")
+            if dimension is not None and (not isinstance(dimension, str) or not dimension):
+                raise PredicateError("near: `dimension` must be a non-empty string.")
+            return Near(
+                _number(spec, "x"), _number(spec, "y"), _number(spec, "z"), radius, dimension
+            )
         case "compare":
             path, op, value = spec.get("path"), spec.get("op"), spec.get("value")
             if not isinstance(path, str) or not path:
@@ -150,7 +157,8 @@ def _lookup(observation: JsonObject, path: str) -> JsonValue | None:
 
 
 def _real(value: JsonValue | None) -> float | None:
-    if isinstance(value, bool) or not isinstance(value, int | float):
+    # NaN and infinities make every comparison False, so `not`/`!=` would turn them into TRUE.
+    if isinstance(value, bool) or not isinstance(value, int | float) or not math.isfinite(value):
         return None
     return float(value)
 
@@ -164,7 +172,8 @@ def _item_count(observation: JsonObject, item: str) -> int | None:
         if not isinstance(stack, dict):
             return None
         name, count = stack.get("name"), _real(stack.get("count"))
-        if not isinstance(name, str) or count is None:
+        # A negative or fractional count is a broken observation, not something to sum.
+        if not isinstance(name, str) or count is None or count < 0 or not count.is_integer():
             return None
         if name == item:
             total += int(count)
@@ -206,7 +215,13 @@ def evaluate(predicate: Predicate, observation: JsonObject) -> Verdict:
         case HasItem(item, count):
             have = _item_count(observation, item)
             return Verdict.UNKNOWN if have is None else _verdict(have >= count)
-        case Near(x, y, z, radius):
+        case Near(x, y, z, radius, dimension):
+            if dimension is not None:
+                here_dimension = observation.get("dimension")
+                if not isinstance(here_dimension, str):
+                    return Verdict.UNKNOWN
+                if here_dimension != dimension:
+                    return Verdict.FALSE
             position = observation.get("position")
             if not isinstance(position, dict):
                 return Verdict.UNKNOWN

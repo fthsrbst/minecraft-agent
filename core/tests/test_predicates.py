@@ -1,5 +1,7 @@
 """Predicates must never report success on a negative state (P2.2 acceptance)."""
 
+import math
+
 import pytest
 
 from agent_core.plugins.jsonrpc import JsonObject, JsonValue
@@ -119,3 +121,49 @@ def test_only_true_is_truthy() -> None:
 def test_malformed_specs_are_rejected(spec: JsonValue, message: str) -> None:
     with pytest.raises(PredicateError, match=message):
         parse_predicate(spec)
+
+
+# Regressions from the 2026-10-16 review: non-finite numbers made `not`/`!=` report TRUE.
+NAN_STATE: JsonObject = {"position": {"x": math.nan, "y": 64.0, "z": 0.0}, "health": math.inf}
+
+
+@pytest.mark.parametrize(
+    "spec",
+    [
+        {"type": "not", "of": {"type": "near", "x": 0, "y": 64, "z": 0, "radius": 1}},
+        {"type": "near", "x": 0, "y": 64, "z": 0, "radius": 1},
+        {"type": "compare", "path": "health", "op": "!=", "value": 20},
+        {"type": "not", "of": {"type": "compare", "path": "health", "op": "<", "value": 20}},
+    ],
+)
+def test_non_finite_numbers_are_unknown(spec: JsonObject) -> None:
+    assert check(spec, NAN_STATE) is U
+
+
+@pytest.mark.parametrize("count", [-5, 1.5, math.nan])
+def test_impossible_stack_counts_are_unknown(count: float) -> None:
+    observation: JsonObject = {
+        "inventory": [{"name": "log", "count": count}, {"name": "log", "count": 6}]
+    }
+    assert check({"type": "has_item", "item": "log"}, observation) is U
+
+
+NEAR_ORIGIN_OVERWORLD: JsonObject = {
+    "type": "near",
+    "x": 0,
+    "y": 64,
+    "z": 0,
+    "radius": 2,
+    "dimension": "overworld",
+}
+
+
+@pytest.mark.parametrize(
+    ("dimension", "expected"),
+    [("overworld", T), ("the_nether", F), (None, U)],
+)
+def test_near_checks_the_dimension(dimension: str | None, expected: Verdict) -> None:
+    observation: JsonObject = {"position": {"x": 0, "y": 64, "z": 0}}
+    if dimension is not None:
+        observation["dimension"] = dimension
+    assert check(NEAR_ORIGIN_OVERWORLD, observation) is expected

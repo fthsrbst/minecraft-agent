@@ -21,7 +21,7 @@ from agent_core.telemetry import TelemetryRecorder
 @dataclass
 class FakeBackend:
     result: BackendResult | None = None
-    error: Exception | None = None
+    error: BaseException | None = None
     provider: str = "fake"
     requests: list[LlmRequest] = field(default_factory=list[LlmRequest])
 
@@ -148,3 +148,23 @@ def test_empty_conversation_is_rejected(tmp_path: Path) -> None:
     client, _ = make_client(tmp_path, FakeBackend(result=ok_result()))
     with pytest.raises(ValueError, match="at least one message"):
         asyncio.run(client.complete([], role=ModelRole.TEXT, purpose="test"))
+
+
+def test_cancelled_call_is_still_recorded(tmp_path: Path) -> None:
+    backend = FakeBackend(error=asyncio.CancelledError())
+    client, path = make_client(tmp_path, backend)
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(client.complete("x", role=ModelRole.TEXT, purpose="test"))
+    [record] = read_records(path)
+    assert record["error_type"] == "CancelledError"
+
+
+class BrokenRecorder(TelemetryRecorder):
+    def record(self, record: object) -> None:  # pyright: ignore[reportIncompatibleMethodOverride]
+        raise OSError("disk full")
+
+
+def test_telemetry_failure_does_not_hide_the_answer(tmp_path: Path) -> None:
+    client = LlmClient(FakeBackend(result=ok_result()), BrokenRecorder(tmp_path / "t.jsonl"))
+    response = asyncio.run(client.complete("x", role=ModelRole.TEXT, purpose="test"))
+    assert response.text == "hello"
