@@ -3,8 +3,16 @@
   "description": "The bot is put at the bottom of a 9-block-deep pool: the reflex must swim up before the air runs out.",
   "setup": {
     "fill": [
-      { "from": { "x": 0, "y": 195, "z": 0 }, "to": { "x": 4, "y": 205, "z": 4 }, "block": "glass" },
-      { "from": { "x": 1, "y": 196, "z": 1 }, "to": { "x": 3, "y": 204, "z": 3 }, "block": "water" },
+      {
+        "from": { "x": 0, "y": 195, "z": 0 },
+        "to": { "x": 4, "y": 205, "z": 4 },
+        "block": "glass"
+      },
+      {
+        "from": { "x": 1, "y": 196, "z": 1 },
+        "to": { "x": 3, "y": 204, "z": 3 },
+        "block": "water"
+      },
       { "from": { "x": 1, "y": 205, "z": 1 }, "to": { "x": 3, "y": 205, "z": 3 }, "block": "air" }
     ],
     "teleport": { "x": 2.5, "y": 196, "z": 2.5 }
