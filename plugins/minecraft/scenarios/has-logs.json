@@ -1,0 +1,6 @@
+{
+  "id": "has-logs",
+  "description": "The bot holds at least 3 oak logs.",
+  "setup": { "clear": true, "give": [{ "item": "oak_log", "count": 3 }], "time": "day" },
+  "predicate": { "type": "has_item", "item": "oak_log", "count": 3 }
+}

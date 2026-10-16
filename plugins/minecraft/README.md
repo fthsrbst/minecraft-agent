@@ -34,3 +34,18 @@ carries protocol messages only, logs go to stderr.
 | `act`       | `{ primitive: "move", args: { direction, durationMs, jump? } }` | `{ ok, position }`                                                 |
 
 Events arrive as `event` notifications: `chat`, `health`, `death`, `kicked`, `error`, `disconnected`.
+
+## Scenario component (evaluator only)
+
+`node dist/scenario-main.js` (manifest component `scenario`) sets up and resets test states over
+RCON. It is a separate process so the agent's bot never holds server-console power (AGENTS.md
+decision 15). It reads `MC_RCON_HOST` (local only), `MC_RCON_PORT` and `MC_RCON_PASSWORD`.
+
+| Method           | Params                                                                                                                  |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `scenario.setup` | `{ player, spec: { clear?, give?: [{ item, count }], teleport?: { x, y, z }, time?, weather? } }`                       |
+| `scenario.reset` | `{ player }`: empty inventory, effects cleared, healed and fed, item drops within 64 blocks removed, day, clear weather |
+
+Every value is validated before it reaches a command (items are checked against the 1.21.11 item
+list), and a server reply such as "No player was found" fails the call. Scenario files live in
+`scenarios/`.

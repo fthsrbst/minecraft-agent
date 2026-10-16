@@ -27,6 +27,7 @@
     "vitest": "5.0.4"
   },
   "dependencies": {
+    "minecraft-data": "3.117.0",
     "mineflayer": "4.39.0"
   }
 }

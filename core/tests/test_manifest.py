@@ -69,3 +69,26 @@ def test_invalid_json(tmp_path: Path) -> None:
 def test_rejects_bad_fields(tmp_path: Path, overrides: dict[str, object], message: str) -> None:
     with pytest.raises(ManifestError, match=message):
         load_manifest(write_manifest(tmp_path, **overrides))
+
+
+def test_components_are_optional_named_commands(tmp_path: Path) -> None:
+    manifest = load_manifest(
+        write_manifest(tmp_path, components={"scenario": {"command": [sys.executable, "s.py"]}})
+    )
+    assert manifest.command_for(None) == (sys.executable, "main.py")
+    assert manifest.command_for("scenario") == (sys.executable, "s.py")
+    with pytest.raises(ManifestError, match="no component 'recorder' \\(known: scenario\\)"):
+        manifest.command_for("recorder")
+
+
+@pytest.mark.parametrize(
+    ("components", "message"),
+    [
+        ([], "`components` must be an object"),
+        ({"scenario": "node s.js"}, "component `scenario` must be an object"),
+        ({"scenario": {"command": ["no-such-executable-xyz"]}}, "was not found on PATH"),
+    ],
+)
+def test_rejects_bad_components(tmp_path: Path, components: object, message: str) -> None:
+    with pytest.raises(ManifestError, match=message):
+        load_manifest(write_manifest(tmp_path, components=components))

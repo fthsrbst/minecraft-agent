@@ -4,5 +4,8 @@
   "protocolVersion": "gpp/1",
   "game": { "name": "Minecraft Java Edition", "version": "1.21.11" },
   "command": ["node", "dist/plugin-main.js"],
-  "capabilities": []
+  "components": {
+    "scenario": { "command": ["node", "dist/scenario-main.js"] }
+  },
+  "capabilities": ["scenario"]
 }

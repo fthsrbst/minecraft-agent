@@ -33,3 +33,18 @@ an unknown model gets `cost_usd: null`, never a guess.
 ```bash
 uv run --env-file ../.env python -m agent_core.llm_demo   # needs ANTHROPIC_API_KEY in ../.env
 ```
+
+## Predicates and scenarios
+
+`agent_core.verifier` evaluates acceptance predicates (JSON: `has_item`, `near`, `compare`,
+`all`, `any`, `not`) against an observation and answers `true`, `false` or `unknown`. A missing or
+malformed field is `unknown`, and only `true` counts as success. `agent_core.scenarios` loads a
+scenario file (`id`, `setup`, `predicate`); the `setup` block is interpreted by the plugin's
+`scenario` component.
+
+```bash
+uv run --env-file ../.env python -m agent_core.scenario_demo ../plugins/minecraft \
+  ../plugins/minecraft/scenarios/*.json --runs 2
+```
+
+For each scenario and run: reset → the predicate must be `false`, setup → it must become `true`.
