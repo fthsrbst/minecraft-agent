@@ -10,6 +10,7 @@ import uuid
 from dataclasses import asdict, dataclass, field, is_dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any, cast
 
 
 def new_trace_id() -> str:
@@ -75,27 +76,55 @@ class TraceTotals:
     # False when at least one call had an unknown cost: the total is then a lower bound.
     cost_complete: bool = True
     latency_ms: float = 0.0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
+    # False when the telemetry file does not exist: "no calls" is then not a measurement.
+    telemetry_found: bool = True
+    # Lines that could not be read (e.g. cut off by a crash); their calls are missing.
+    unreadable_lines: int = 0
 
 
 def summarize_trace(path: Path, trace_id: str) -> TraceTotals:
     """Sums the LLM calls of one trace (one task run) from a telemetry file."""
     if not path.exists():
-        return TraceTotals()
-    calls = failed = tokens_in = tokens_out = 0
+        return TraceTotals(telemetry_found=False)
+    calls = failed = tokens_in = tokens_out = cache_read = cache_write = unreadable = 0
     cost = latency = 0.0
     complete = True
     for line in path.read_text(encoding="utf-8").splitlines():
-        record = json.loads(line)
+        try:
+            parsed: object = json.loads(line)
+        except json.JSONDecodeError:
+            unreadable += 1
+            continue
+        if not isinstance(parsed, dict):
+            unreadable += 1
+            continue
+        record = cast(dict[str, Any], parsed)
         if record.get("trace_id") != trace_id:
             continue
         calls += 1
         failed += 0 if record.get("ok") else 1
         tokens_in += record.get("input_tokens", 0)
         tokens_out += record.get("output_tokens", 0)
+        cache_read += record.get("cache_read_tokens", 0)
+        cache_write += record.get("cache_write_tokens", 0)
         latency += record.get("latency_ms", 0.0)
         if record.get("cost_usd") is None:
             # A failed call before any response costs nothing; any other unknown cost is a gap.
             complete &= record.get("served_model") is None
         else:
             cost += record["cost_usd"]
-    return TraceTotals(calls, failed, tokens_in, tokens_out, round(cost, 8), complete, latency)
+    # An unreadable line may belong to this trace, so the total can no longer be called complete.
+    return TraceTotals(
+        calls=calls,
+        failed_calls=failed,
+        input_tokens=tokens_in,
+        output_tokens=tokens_out,
+        cost_usd=round(cost, 8),
+        cost_complete=complete and unreadable == 0,
+        latency_ms=latency,
+        cache_read_tokens=cache_read,
+        cache_write_tokens=cache_write,
+        unreadable_lines=unreadable,
+    )

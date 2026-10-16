@@ -20,18 +20,6 @@ const MAX_BLOCK_TYPES = 40;
 const MAX_ENTITIES = 30;
 // Blocks that never matter to a task and would drown the summary.
 const IGNORED_BLOCKS: ReadonlySet<string> = new Set(["air", "cave_air", "void_air"]);
-// Blocks that let light and line of sight through, so a neighbour of one is "exposed".
-const OPEN_BLOCKS: ReadonlySet<string> = new Set([
-  "air",
-  "cave_air",
-  "water",
-  "short_grass",
-  "tall_grass",
-  "fern",
-  "large_fern",
-  "leaf_litter",
-  "snow",
-]);
 const NEIGHBOURS = [
   [1, 0, 0],
   [-1, 0, 0],
@@ -40,6 +28,8 @@ const NEIGHBOURS = [
   [0, 0, 1],
   [0, 0, -1],
 ] as const;
+// Bounds the flood fill: open air above a plain is large, and the fill runs on every observation.
+const MAX_OPEN_CELLS = 120_000;
 
 export interface Position {
   readonly x: number;
@@ -91,9 +81,61 @@ export function summarizeBlocks(
     }));
 }
 
-/** True when at least one of the six neighbours lets the block be seen. */
-export function isExposed(neighbourNames: readonly (string | null)[]): boolean {
-  return neighbourNames.some((name) => name === null || OPEN_BLOCKS.has(name));
+export const cellKey = (x: number, y: number, z: number): string =>
+  `${String(x)},${String(y)},${String(z)}`;
+
+/**
+ * The open space (air, water, plants, leaves…) connected to `start`, within `radius`: a flood fill.
+ * Fair mode (AGENTS.md decision 15) reports only what touches this space, so ore in a sealed cave
+ * or a mob behind a wall stays hidden even though air surrounds it.
+ */
+export function floodOpenSpace(
+  start: Position,
+  radius: number,
+  isOpen: (x: number, y: number, z: number) => boolean,
+  maxCells = MAX_OPEN_CELLS,
+): Set<string> {
+  const open = new Set<string>();
+  if (!isOpen(start.x, start.y, start.z)) {
+    return open;
+  }
+  const queue: Position[] = [start];
+  open.add(cellKey(start.x, start.y, start.z));
+  for (let head = 0; head < queue.length && open.size < maxCells; head++) {
+    const cell = queue[head];
+    if (cell === undefined) {
+      break;
+    }
+    for (const [dx, dy, dz] of NEIGHBOURS) {
+      const x = cell.x + dx;
+      const y = cell.y + dy;
+      const z = cell.z + dz;
+      const key = cellKey(x, y, z);
+      if (open.has(key) || distance({ x, y, z }, start) > radius || !isOpen(x, y, z)) {
+        continue;
+      }
+      open.add(key);
+      queue.push({ x, y, z });
+    }
+  }
+  return open;
+}
+
+/** A solid block is visible when one of its faces touches the open space. */
+export function touchesOpenSpace(position: Position, open: ReadonlySet<string>): boolean {
+  return NEIGHBOURS.some(([dx, dy, dz]) =>
+    open.has(cellKey(position.x + dx, position.y + dy, position.z + dz)),
+  );
+}
+
+/** The open space around the bot's eyes, as the game sees it. */
+export function visibleSpace(bot: Bot, radius: number): Set<string> {
+  const eyes = bot.entity.position.floored().offset(0, 1, 0);
+  return floodOpenSpace({ x: eyes.x, y: eyes.y, z: eyes.z }, radius, (x, y, z) => {
+    const block = bot.blockAt(new Vec3(x, y, z));
+    // Unloaded chunks are not open: nothing is known about them.
+    return block !== null && (block.boundingBox === "empty" || block.transparent);
+  });
 }
 
 export function parseVisibility(value: string | undefined): Visibility {
@@ -113,31 +155,44 @@ function nearbyBlocks(bot: Bot, radius: number, visibility: Visibility): JsonObj
     maxDistance: radius,
     count: 50_000,
   });
+  const open = visibility === "fair" ? visibleSpace(bot, radius + 1) : null;
   const sightings: BlockSighting[] = [];
   for (const position of positions) {
     const block = bot.blockAt(position);
     if (block === null) {
       continue;
     }
-    if (visibility === "fair") {
-      const neighbours = NEIGHBOURS.map(([dx, dy, dz]) => {
-        const other = bot.blockAt(position.offset(dx, dy, dz));
-        return other === null ? null : other.name;
-      });
-      if (!isExposed(neighbours)) {
-        continue;
-      }
+    if (
+      open !== null &&
+      !open.has(cellKey(position.x, position.y, position.z)) &&
+      !touchesOpenSpace(position, open)
+    ) {
+      continue;
     }
     sightings.push({ name: block.name, position: { x: position.x, y: position.y, z: position.z } });
   }
   return summarizeBlocks(sightings, origin);
 }
 
-function nearbyEntities(bot: Bot): JsonObject[] {
+function nearbyEntities(bot: Bot, visibility: Visibility): JsonObject[] {
   const origin = bot.entity.position;
+  // Fair mode: an entity is seen when the cell it stands in (or its head) is in the open space.
+  const open = visibility === "fair" ? visibleSpace(bot, ENTITY_RADIUS) : null;
+  const seen = (position: Vec3): boolean => {
+    if (open === null) {
+      return true;
+    }
+    const cell = position.floored();
+    return (
+      open.has(cellKey(cell.x, cell.y, cell.z)) || open.has(cellKey(cell.x, cell.y + 1, cell.z))
+    );
+  };
   return Object.values(bot.entities)
     .filter(
-      (entity) => entity !== bot.entity && entity.position.distanceTo(origin) <= ENTITY_RADIUS,
+      (entity) =>
+        entity !== bot.entity &&
+        entity.position.distanceTo(origin) <= ENTITY_RADIUS &&
+        seen(entity.position),
     )
     .map((entity) => {
       const item = entity.name === "item" ? entity.getDroppedItem() : null;
@@ -217,7 +272,7 @@ export function buildObservation(bot: Bot, options: ObserveOptions): JsonObject 
     ...(options.nearby
       ? {
           nearbyBlocks: nearbyBlocks(bot, options.radius, options.visibility),
-          nearbyEntities: nearbyEntities(bot),
+          nearbyEntities: nearbyEntities(bot, options.visibility),
         }
       : {}),
   };

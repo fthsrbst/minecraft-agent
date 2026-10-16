@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { isExposed, parseObserveOptions, parseVisibility, summarizeBlocks } from "./observation.js";
+import {
+  floodOpenSpace,
+  parseObserveOptions,
+  parseVisibility,
+  summarizeBlocks,
+  touchesOpenSpace,
+} from "./observation.js";
 
 describe("summarizeBlocks", () => {
   it("groups by name with count and nearest position, nearest type first", () => {
@@ -26,15 +32,41 @@ describe("summarizeBlocks", () => {
   });
 });
 
-describe("isExposed", () => {
-  it("is exposed when any neighbour is open or unloaded", () => {
-    expect(isExposed(["stone", "stone", "air", "stone", "stone", "stone"])).toBe(true);
-    expect(isExposed(["stone", "water", "stone", "stone", "stone", "stone"])).toBe(true);
-    expect(isExposed(["stone", null, "stone", "stone", "stone", "stone"])).toBe(true);
+describe("floodOpenSpace", () => {
+  // A 7×7×7 world: solid everywhere except the cells listed as open.
+  const world = (openCells: string[]) => {
+    const open = new Set(openCells);
+    return (x: number, y: number, z: number) => open.has(`${String(x)},${String(y)},${String(z)}`);
+  };
+
+  it("reaches connected open cells only", () => {
+    // A corridor along x from the start, and a sealed pocket at (0, 3, 0).
+    const isOpen = world(["0,0,0", "1,0,0", "2,0,0", "0,3,0"]);
+    const open = floodOpenSpace({ x: 0, y: 0, z: 0 }, 5, isOpen);
+    expect([...open].sort()).toEqual(["0,0,0", "1,0,0", "2,0,0"]);
   });
 
-  it("is hidden when every neighbour is solid", () => {
-    expect(isExposed(["stone", "dirt", "stone", "granite", "stone", "iron_ore"])).toBe(false);
+  it("stops at the radius and the cell budget", () => {
+    const everything = () => true;
+    expect(floodOpenSpace({ x: 0, y: 0, z: 0 }, 1, everything).size).toBe(7);
+    expect(floodOpenSpace({ x: 0, y: 0, z: 0 }, 10, everything, 50).size).toBeLessThanOrEqual(56);
+  });
+
+  it("is empty when the start is not open", () => {
+    expect(floodOpenSpace({ x: 0, y: 0, z: 0 }, 5, () => false).size).toBe(0);
+  });
+});
+
+describe("touchesOpenSpace", () => {
+  const open = new Set(["0,0,0", "1,0,0"]);
+
+  it("sees a block next to the open space", () => {
+    expect(touchesOpenSpace({ x: 2, y: 0, z: 0 }, open)).toBe(true);
+    expect(touchesOpenSpace({ x: 0, y: -1, z: 0 }, open)).toBe(true);
+  });
+
+  it("does not see a block two cells away (e.g. ore behind stone)", () => {
+    expect(touchesOpenSpace({ x: 3, y: 0, z: 0 }, open)).toBe(false);
   });
 });
 

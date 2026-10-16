@@ -10,7 +10,13 @@ import pathfinderModule from "mineflayer-pathfinder";
 import { Vec3 } from "vec3";
 
 import { parseAction } from "../bridge/actions.js";
-import { buildObservation, parseObserveOptions, type Visibility } from "../bridge/observation.js";
+import {
+  buildObservation,
+  parseObserveOptions,
+  touchesOpenSpace,
+  type Visibility,
+  visibleSpace,
+} from "../bridge/observation.js";
 import type { JsonObject, JsonValue } from "../rpc/json-rpc.js";
 import type { Primitive } from "./broker.js";
 
@@ -19,6 +25,8 @@ const { goals } = pathfinderModule;
 const GOTO_TIMEOUT_MS = 60_000;
 const COLLECT_TIMEOUT_MS = 120_000;
 const SEARCH_RADIUS = 64;
+// In fair mode the search is limited to what the bot can see, which a flood fill bounds anyway.
+const FAIR_SEARCH_RADIUS = 32;
 const TABLE_RADIUS = 32;
 const MAX_COLLECT = 64;
 const MAX_CRAFT = 64;
@@ -78,13 +86,15 @@ function throwIfAborted(signal: AbortSignal): void {
 
 /** Runs `task` until it settles, the run is aborted, or `timeoutMs` passes; `stop` cleans up. */
 async function bounded<T>(
-  task: Promise<T>,
+  start: () => Promise<T>,
   signal: AbortSignal,
   timeoutMs: number,
   what: string,
   stop: () => void,
 ): Promise<T> {
+  // Checked before the game action starts: a stopped run must not begin new work.
   throwIfAborted(signal);
+  const task = start();
   let timer: NodeJS.Timeout | undefined;
   let onAbort: (() => void) | undefined;
   const limits = new Promise<never>((_, reject) => {
@@ -153,7 +163,7 @@ async function goNear(
   bot.on("path_reset", onReset);
   try {
     await bounded(
-      bot.pathfinder.goto(new goals.GoalNear(target.x, target.y, target.z, range)),
+      () => bot.pathfinder.goto(new goals.GoalNear(target.x, target.y, target.z, range)),
       signal,
       timeoutMs,
       "goTo",
@@ -218,6 +228,9 @@ function findPlaceSpot(bot: Bot): Vec3 | null {
 
 // --- primitives --------------------------------------------------------------------------------
 
+// Not things a player can mine and carry.
+const NOT_COLLECTABLE: ReadonlySet<string> = new Set(["air", "cave_air", "void_air", "water", "lava", "bedrock"]);
+
 export function createPrimitives(
   getBot: () => Bot,
   visibility: Visibility,
@@ -240,21 +253,32 @@ export function createPrimitives(
   const collect: Primitive = async (args, signal) => {
     const bot = getBot();
     const block = requireName(args, "block", registry().blocksByName);
+    if (NOT_COLLECTABLE.has(block)) {
+      throw new PrimitiveError(`${block} cannot be collected`);
+    }
     const count = requireInt(args, "count", 1, MAX_COLLECT, 1);
     const timeoutMs = requireInt(args, "timeoutMs", 1_000, COLLECT_TIMEOUT_MS, COLLECT_TIMEOUT_MS);
+    throwIfAborted(signal);
     const blockId = registry().blocksByName[block]?.id;
+    // Fair mode: only blocks the bot could see count, or `collect` would be an x-ray
+    // ("no diamond_ore within 64 blocks" tells where diamonds are not). Decision 15.
+    const radius = visibility === "fair" ? FAIR_SEARCH_RADIUS : SEARCH_RADIUS;
+    const open = visibility === "fair" ? visibleSpace(bot, radius + 1) : null;
     const targets = bot
-      .findBlocks({ matching: blockId ?? -1, maxDistance: SEARCH_RADIUS, count })
+      .findBlocks({ matching: blockId ?? -1, maxDistance: radius, count: count * 8 })
+      .filter((pos) => open === null || touchesOpenSpace(pos, open))
+      .slice(0, count)
       .flatMap((pos) => {
         const found = bot.blockAt(pos);
         return found === null ? [] : [found];
       });
     if (targets.length === 0) {
-      throw new PrimitiveError(`no ${block} within ${String(SEARCH_RADIUS)} blocks`);
+      const where = open === null ? "" : " visible";
+      throw new PrimitiveError(`no${where} ${block} within ${String(radius)} blocks`);
     }
     const before = inventoryCounts(bot);
     await bounded(
-      bot.collectBlock.collect(targets, { ignoreNoPath: true }),
+      () => bot.collectBlock.collect(targets, { ignoreNoPath: true }),
       signal,
       timeoutMs,
       "collect",
@@ -263,12 +287,12 @@ export function createPrimitives(
         bot.pathfinder.stop();
       },
     );
-    return {
-      ok: true,
-      requested: count,
-      found: targets.length,
-      gained: gained(before, inventoryCounts(bot)),
-    };
+    const got = gained(before, inventoryCounts(bot));
+    // collectblock skips blocks it cannot reach; nothing gained is a failure, not a success.
+    if (Object.keys(got).length === 0) {
+      throw new PrimitiveError(`collected nothing: the ${block} found could not be reached`);
+    }
+    return { ok: true, requested: count, found: targets.length, gained: got };
   };
 
   const craft: Primitive = async (args, signal) => {
@@ -277,8 +301,11 @@ export function createPrimitives(
     const count = requireInt(args, "count", 1, MAX_CRAFT, 1);
     const itemId = registry().itemsByName[item]?.id ?? -1;
     // Recipes that fit the 2×2 inventory grid need no table; the rest need one nearby.
+    throwIfAborted(signal);
     let table = null;
-    let recipe = bot.recipesFor(itemId, null, 1, null)[0];
+    // minResultCount = count: only recipes the inventory can run often enough are returned, so
+    // a craft never consumes ingredients and then fails halfway.
+    let recipe = bot.recipesFor(itemId, null, count, null)[0];
     if (recipe === undefined) {
       const tableId = registry().blocksByName.crafting_table?.id ?? -1;
       table = bot.findBlock({ matching: tableId, maxDistance: TABLE_RADIUS });
@@ -287,9 +314,9 @@ export function createPrimitives(
           `cannot craft ${item}: missing ingredients, or it needs a crafting_table within ${String(TABLE_RADIUS)} blocks`,
         );
       }
-      recipe = bot.recipesFor(itemId, null, 1, table)[0];
+      recipe = bot.recipesFor(itemId, null, count, table)[0];
       if (recipe === undefined) {
-        throw new PrimitiveError(`cannot craft ${item}: missing ingredients`);
+        throw new PrimitiveError(`cannot craft ${String(count)} ${item}: missing ingredients`);
       }
       if (table.position.distanceTo(bot.entity.position) > 4) {
         await goNear(bot, table.position, 2, signal, GOTO_TIMEOUT_MS);
@@ -299,7 +326,7 @@ export function createPrimitives(
     const times = Math.ceil(count / recipe.result.count);
     const before = inventoryCounts(bot);
     await bounded(
-      bot.craft(recipe, times, table ?? undefined),
+      () => bot.craft(recipe, times, table ?? undefined),
       signal,
       30_000,
       "craft",
@@ -315,7 +342,7 @@ export function createPrimitives(
     if (held === undefined) {
       throw new PrimitiveError(`no ${item} in the inventory`);
     }
-    await bounded(bot.equip(held, "hand"), signal, 5_000, "equip", () => undefined);
+    await bounded(() => bot.equip(held, "hand"), signal, 5_000, "equip", () => undefined);
     return { ok: true, hand: item };
   };
 
@@ -350,9 +377,9 @@ export function createPrimitives(
     if (target.distanceTo(bot.entity.position) > 4.5) {
       await goNear(bot, target, 3, signal, GOTO_TIMEOUT_MS);
     }
-    await bounded(bot.equip(stack, "hand"), signal, 5_000, "equip", () => undefined);
+    await bounded(() => bot.equip(stack, "hand"), signal, 5_000, "equip", () => undefined);
     await bounded(
-      bot.placeBlock(below, new Vec3(0, 1, 0)),
+      () => bot.placeBlock(below, new Vec3(0, 1, 0)),
       signal,
       5_000,
       "place",
@@ -361,10 +388,13 @@ export function createPrimitives(
     return { ok: true, item, position: { x: target.x, y: target.y, z: target.z } };
   };
 
-  const observe: Primitive = (args) =>
-    Promise.resolve(buildObservation(getBot(), parseObserveOptions(args, visibility)));
+  const observe: Primitive = (args, signal) => {
+    throwIfAborted(signal);
+    return Promise.resolve(buildObservation(getBot(), parseObserveOptions(args, visibility)));
+  };
 
-  const chat: Primitive = (args) => {
+  const chat: Primitive = (args, signal) => {
+    throwIfAborted(signal);
     const action = parseAction({ primitive: "chat", args });
     if (action.primitive === "chat") {
       getBot().chat(action.text);
@@ -375,7 +405,8 @@ export function createPrimitives(
   const wait: Primitive = (args, signal) => {
     const ms = requireInt(args, "ms", 1, MAX_WAIT_MS);
     return bounded(
-      new Promise<JsonValue>((resolve) =>
+      () =>
+        new Promise<JsonValue>((resolve) =>
         setTimeout(() => {
           resolve({ ok: true });
         }, ms),
@@ -416,7 +447,7 @@ export const SKILL_API: JsonObject[] = [
     name: "bot.collect(block, count?)",
     returns: "{ ok, requested, found, gained }",
     description:
-      "Find, mine and pick up up to count (≤ 64) blocks of a type within 64 blocks; uses the best tool.",
+      "Find, mine and pick up up to count (≤ 64) blocks of a type; in fair mode only blocks in sight within 32 blocks. Uses the best tool; throws if nothing was gained.",
   },
   {
     name: "bot.craft(item, count?)",

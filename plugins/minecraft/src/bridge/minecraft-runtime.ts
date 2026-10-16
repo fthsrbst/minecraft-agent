@@ -24,6 +24,7 @@ export class MinecraftRuntime {
   // Actions share the bot's control state, so they run one at a time in arrival order.
   private actQueue: Promise<unknown> = Promise.resolve();
   private currentAction: AbortController | null = null;
+  private pendingActs = 0;
 
   constructor(
     private readonly config: BotConfig,
@@ -42,6 +43,11 @@ export class MinecraftRuntime {
 
   observe(options: ObserveOptions): JsonObject {
     return buildObservation(this.requireBot(), options);
+  }
+
+  /** True while an `act` is running or queued. */
+  get busy(): boolean {
+    return this.currentAction !== null || this.pendingActs > 0;
   }
 
   /** Throws NotReady when the bot is not connected and spawned. */
@@ -65,7 +71,12 @@ export class MinecraftRuntime {
   }
 
   act(action: Action): Promise<JsonObject> {
-    const run = this.actQueue.then(() => this.runAction(action));
+    this.pendingActs += 1;
+    const run = this.actQueue
+      .then(() => this.runAction(action))
+      .finally(() => {
+        this.pendingActs -= 1;
+      });
     this.actQueue = run.catch(() => undefined);
     return run;
   }

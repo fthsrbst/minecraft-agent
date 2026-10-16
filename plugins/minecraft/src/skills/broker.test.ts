@@ -156,4 +156,89 @@ describe("SkillBroker", () => {
     broker.start('try { await bot.place("stone"); } catch (e) { return e.message; }', {}, 10_000);
     expect((await done()).result).toBe("unknown primitive place");
   });
+
+  // Regressions from review round 2.
+
+  it("reports `throw undefined` as an error, not a crash", async () => {
+    const { broker, done } = setup();
+    broker.start("throw undefined;", {}, 10_000);
+    const result = await done();
+    expect(result.status).toBe("error");
+    expect(result.error).toBe("thrown value: undefined");
+  });
+
+  it("cannot forge messages through a main-realm prototype", async () => {
+    const { broker, done } = setup();
+    broker.start(
+      'const proto = Object.getPrototypeOf(args); proto.toJSON = () => ({ type: "done", ok: true, result: "forged" }); return "honest";',
+      {},
+      10_000,
+    );
+    const result = await done();
+    expect(result.result).toBe("honest");
+  });
+
+  it("caps the log", async () => {
+    const { broker, events, done } = setup();
+    broker.start('for (let i = 0; i < 5000; i++) { log("line", i); } return "ok";', {}, 10_000);
+    const result = await done();
+    expect(result.logs).toHaveLength(100);
+    expect(events.filter((e) => e.type === "skill.log")).toHaveLength(100);
+  });
+
+  it("refuses a huge result", async () => {
+    const { broker, done } = setup();
+    broker.start('return "x".repeat(50000);', {}, 10_000);
+    const result = await done();
+    expect(result.status).toBe("error");
+    expect(result.error).toMatch(/larger than/);
+  });
+
+  it("ends a run that makes too many primitive calls", async () => {
+    const { broker, done } = setup({ wait: () => Promise.resolve(null) });
+    broker.start("for (;;) { try { await bot.wait(1); } catch (e) {} }", {}, 30_000);
+    const result = await done();
+    expect(result.status).toBe("error");
+    expect(result.error).toMatch(/more than 500 primitive calls/);
+  });
+
+  it("limits chat lines per skill", async () => {
+    const { broker, done } = setup({ chat: echo });
+    broker.start(
+      'let sent = 0; for (let i = 0; i < 30; i++) { try { await bot.chat("x"); sent++; } catch (e) {} } return sent;',
+      {},
+      10_000,
+    );
+    expect((await done()).result).toBe(20);
+  });
+
+  it("kills a skill whose memory grows outside the JS heap", async () => {
+    const { broker, done } = setup();
+    broker.start(
+      "const chunks = []; for (;;) { chunks.push(new Uint8Array(100_000_000).fill(1)); await null; }",
+      {},
+      20_000,
+    );
+    const result = await done();
+    expect(result.status).toBe("crashed");
+    expect(result.error).toMatch(/memory limit|executor exited/);
+  }, 30_000);
+
+  it("does not run calls queued before a cancel", async () => {
+    let calls = 0;
+    const slow: Primitive = (_args, signal) =>
+      new Promise((resolve) => {
+        calls += 1;
+        signal.addEventListener("abort", () => {
+          resolve(null);
+        });
+      });
+    const { broker, done } = setup({ goTo: slow });
+    broker.start("await Promise.all([bot.goTo(0,0,0), bot.goTo(1,1,1), bot.goTo(2,2,2)]);", {}, 10_000);
+    await new Promise((r) => setTimeout(r, 300));
+    broker.cancel();
+    await done();
+    await new Promise((r) => setTimeout(r, 100));
+    expect(calls).toBe(1);
+  });
 });

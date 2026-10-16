@@ -82,3 +82,16 @@ def test_task_run_record_links_task_world_outcome_and_cost(tmp_path: Path) -> No
     assert saved["llm_cost_usd"] == pytest.approx(0.25)
     assert saved["wall_time_s"] >= 0
     assert saved["final_observation"] == {"tick": 5}
+
+
+def test_a_cut_off_line_is_skipped_and_marks_the_total_incomplete(tmp_path: Path) -> None:
+    telemetry = TelemetryRecorder(tmp_path / "t.jsonl")
+    telemetry.record(call("a", 0.01))
+    with telemetry.path.open("a", encoding="utf-8") as file:
+        file.write('{"trace_id": "a", "cost_us')  # a crash mid-write
+    totals = summarize_trace(telemetry.path, "a")
+    assert (totals.calls, totals.unreadable_lines, totals.cost_complete) == (1, 1, False)
+
+
+def test_a_missing_file_is_reported_as_missing(tmp_path: Path) -> None:
+    assert not summarize_trace(tmp_path / "none.jsonl", "a").telemetry_found

@@ -333,4 +333,8 @@ class EventWaiter:
             async with asyncio.timeout(timeout_s):
                 return await self.future
         finally:
-            self.client._forget_waiter(self)  # pyright: ignore[reportPrivateUsage]
+            self.forget()
+
+    def forget(self) -> None:
+        """Stops listening; safe to call more than once."""
+        self.client._forget_waiter(self)  # pyright: ignore[reportPrivateUsage]

@@ -8,7 +8,7 @@
  */
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { cp, mkdir, rm, stat } from "node:fs/promises";
+import { cp, mkdir, rename, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
@@ -130,15 +130,24 @@ export async function freshWorld(
   const env = { ...baseEnv, MC_LEVEL: level, MC_SEED: String(seed) };
 
   let generated = false;
-  if (!(await exists(pristine))) {
+  // A pristine copy counts only once it is complete (level.dat exists): the copy is made into a
+  // temporary folder and renamed, so an interrupted first run never leaves a half world behind.
+  if (!(await exists(join(pristine, "level.dat")))) {
+    await rm(pristine, { recursive: true, force: true });
     await compose(config, ["stop", config.service], env);
     await rm(live, { recursive: true, force: true });
     await compose(config, ["up", "-d", config.service], env);
     await waitHealthy(config);
     // Stopping saves every chunk to disk before the copy is taken.
     await compose(config, ["stop", config.service], env);
+    if (!(await exists(join(live, "level.dat")))) {
+      throw new WorldError(`the server did not write ${level}/level.dat; generation failed`);
+    }
+    const partial = `${pristine}.partial`;
     await mkdir(join(config.composeDir, "data", "pristine"), { recursive: true });
-    await cp(live, pristine, { recursive: true });
+    await rm(partial, { recursive: true, force: true });
+    await cp(live, partial, { recursive: true });
+    await rename(partial, pristine);
     generated = true;
   }
 
