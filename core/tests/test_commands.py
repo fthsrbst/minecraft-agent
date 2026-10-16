@@ -101,3 +101,9 @@ def test_places_survive_a_new_store_and_are_per_world(tmp_path: Path) -> None:
     assert [p.name for p in reopened.all("seed1")] == ["home"]
     with pytest.raises(PlaceError):
         reopened.save("seed1", "my house!", (0, 0, 0))
+
+
+@pytest.mark.parametrize("text", ["#goto nan 64 0", "#goto 0 inf 0", "#goto 40000000 64 0"])
+def test_positions_must_be_finite_and_inside_the_world(text: str) -> None:
+    with pytest.raises(CommandError, match="coordinates must be numbers"):
+        parse(text)

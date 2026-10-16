@@ -6,7 +6,7 @@ from agent_core.decisions.client import ChoiceQuestion
 
 COMMAND_ROUTE_VERSION = 1
 # Measured on the example set before acting on it; until then the point runs in shadow mode.
-COMMAND_ROUTE_THRESHOLD = 0.8
+COMMAND_ROUTE_THRESHOLD = 0.9
 
 
 def command_route(vocabulary: Vocabulary) -> ChoiceQuestion:

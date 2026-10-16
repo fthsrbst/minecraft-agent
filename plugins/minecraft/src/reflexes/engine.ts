@@ -25,6 +25,19 @@ const ATTACK_REACH = 3.5;
 const COOLDOWN_MS: Readonly<Record<string, number>> = { sword: 625, axe: 1_000 };
 const FIST_COOLDOWN_MS = 250;
 const EVALUATE_MIN_GAP_MS = 50;
+const EAT_MAX_MS = 5_000;
+// After a reflex fails (no food, a fight that timed out), the same kind waits before it retries,
+// so a hopeless reflex cannot keep interrupting the task every tick.
+const FAILED_COOLDOWN_MS = 5_000;
+// Hostile mobs that minecraft-data does not type as "hostile" in every version.
+const EXTRA_HOSTILE: ReadonlySet<string> = new Set([
+  "slime",
+  "magma_cube",
+  "phantom",
+  "ghast",
+  "hoglin",
+  "shulker",
+]);
 // Weapons by preference (best first).
 const WEAPONS = [
   "netherite_sword",
@@ -71,6 +84,7 @@ export class ReflexEngine {
   private active: Promise<void> | null = null;
   private lastEvaluation = 0;
   private enabled = true;
+  private readonly cooldownUntil = new Map<ReflexChoice["kind"], number>();
 
   constructor(
     private readonly bot: Bot,
@@ -94,7 +108,11 @@ export class ReflexEngine {
 
   /** Runs on game events; `triggeredAt` is when the event arrived, for the reaction time. */
   evaluate(triggeredAt: number): void {
-    if (!this.enabled || this.active !== null) {
+    // A dead or not yet respawned bot has no position to flee from and nothing to fight with.
+    if (!this.enabled || this.active !== null || !hasEntity(this.bot)) {
+      return;
+    }
+    if (this.bot.health <= 0) {
       return;
     }
     // entityMoved fires many times per tick; the rules need not run that often.
@@ -102,7 +120,21 @@ export class ReflexEngine {
       return;
     }
     this.lastEvaluation = triggeredAt;
-    const choice = chooseReflex({
+    const choice = this.choose();
+    if (choice === null || (this.cooldownUntil.get(choice.kind) ?? 0) > triggeredAt) {
+      return;
+    }
+    this.active = this.respond(choice, triggeredAt)
+      .catch((error: unknown) => {
+        console.error("reflex failed:", error);
+      })
+      .finally(() => {
+        this.active = null;
+      });
+  }
+
+  private choose(): ReflexChoice | null {
+    return chooseReflex({
       health: this.bot.health,
       food: this.bot.food,
       threats: this.threats(),
@@ -110,18 +142,17 @@ export class ReflexEngine {
       hasFood: this.food() !== null,
       working: this.hooks.working(),
     });
-    if (choice === null) {
-      return;
-    }
-    this.active = this.respond(choice, triggeredAt).finally(() => {
-      this.active = null;
-    });
   }
 
   private threats(): Threat[] {
     const origin = this.bot.entity.position;
     return Object.values(this.bot.entities)
-      .filter((entity) => entity.type === "hostile" && entity.isValid)
+      .filter(
+        (entity) =>
+          entity.isValid &&
+          (entity.type === "hostile" || EXTRA_HOSTILE.has(entity.name ?? "")) &&
+          entity !== this.bot.entity,
+      )
       .map((entity) => ({
         id: entity.id,
         name: entity.name ?? "unknown",
@@ -148,7 +179,12 @@ export class ReflexEngine {
         : this.hooks.interruptWork(`reflex ${choice.kind}: ${choice.reason}`);
     let reactionMs: number | null = null;
     const acted = (): void => {
-      reactionMs ??= Math.round((performance.now() - triggeredAt) * 10) / 10;
+      if (reactionMs !== null) {
+        return;
+      }
+      reactionMs = Math.round((performance.now() - triggeredAt) * 10) / 10;
+      // The core waits for the reflex to finish before resuming work; this says one has begun.
+      this.hooks.emit({ type: "reflex.started", reflex: choice.kind, reactionMs });
     };
     let outcome: string;
     try {
@@ -161,8 +197,15 @@ export class ReflexEngine {
     } catch (error: unknown) {
       outcome = `failed: ${error instanceof Error ? error.message : String(error)}`;
     } finally {
-      this.bot.pathfinder.setGoal(null);
-      this.bot.clearControlStates();
+      try {
+        this.bot.pathfinder.setGoal(null);
+        this.bot.clearControlStates();
+      } catch {
+        // The bot died or disconnected during the reflex; there is nothing left to stop.
+      }
+    }
+    if (/^(failed|no food|fight timed out)/.test(outcome)) {
+      this.cooldownUntil.set(choice.kind, performance.now() + FAILED_COOLDOWN_MS);
     }
     this.hooks.emit({
       type: "reflex",
@@ -176,6 +219,12 @@ export class ReflexEngine {
       health: this.bot.health,
       food: this.bot.food,
     });
+  }
+
+  /** The rules again, mid-fight: a creeper or a pack arriving turns the fight into a flight. */
+  private fleeInstead(): Extract<ReflexChoice, { kind: "flee" }> | null {
+    const choice = this.choose();
+    return choice?.kind === "flee" ? choice : null;
   }
 
   private entity(id: number): Entity | null {
@@ -227,8 +276,9 @@ export class ReflexEngine {
       if (enemy === null) {
         return "threat defeated or gone";
       }
-      if (this.bot.health < 6) {
-        return `switched to flee: ${await this.flee(target, acted)}`;
+      const flee = this.fleeInstead();
+      if (flee !== null) {
+        return `switched to flee (${flee.reason}): ${await this.flee(flee.target, acted)}`;
       }
       const distance = enemy.position.distanceTo(this.bot.entity.position);
       if (distance > ATTACK_REACH) {
@@ -254,9 +304,29 @@ export class ReflexEngine {
     }
     await this.bot.equip(item, "hand");
     acted();
-    await this.bot.consume();
+    // consume() never settles if the server does not confirm (e.g. the item was taken mid-use).
+    let timer: NodeJS.Timeout | undefined;
+    const timedOut = new Promise<false>((resolve) => {
+      timer = setTimeout(() => {
+        resolve(false);
+      }, EAT_MAX_MS);
+    });
+    try {
+      const ate = await Promise.race([this.bot.consume().then(() => true), timedOut]);
+      if (!ate) {
+        this.bot.deactivateItem();
+        return "failed: eating timed out";
+      }
+    } finally {
+      clearTimeout(timer);
+    }
     return `ate ${item.name}`;
   }
+}
+
+// Mineflayer types `bot.entity` as always set, but it is undefined before spawn and after an end.
+function hasEntity(bot: Bot): boolean {
+  return (bot.entity as Entity | undefined) !== undefined;
 }
 
 function sleep(ms: number): Promise<void> {

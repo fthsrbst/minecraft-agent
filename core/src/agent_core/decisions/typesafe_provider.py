@@ -7,6 +7,8 @@ from agent_core.plugins import JsonObject
 
 DEFAULT_MODEL = "jev-latest"
 
+__all__ = ["DEFAULT_MODEL", "JevProvider", "TypeSafeError"]
+
 
 class JevProvider:
     name = "jev"

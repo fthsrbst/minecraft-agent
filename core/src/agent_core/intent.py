@@ -68,13 +68,20 @@ def parse_intent(text: str, prefix: str) -> Intent:
     return Intent(kind, body[:limit])
 
 
+def _escape(text: str) -> str:
+    """Player text cannot close the data fence or open a tag of ours."""
+    return (
+        text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+    )
+
+
 async def route(
     llm: LlmClient, system: str, sender: str, message: str, prefix: str, trace_id: str | None
 ) -> Intent:
     """Never raises for a bad model answer: a failure becomes an honest reply."""
     try:
         answer = await llm.complete(
-            f'<data source="chat" sender="{sender}">\n{message}\n</data>',
+            f'<data source="chat" sender="{_escape(sender)}">\n{_escape(message)}\n</data>',
             role=ModelRole.TEXT,
             purpose="chat.route",
             system=system,

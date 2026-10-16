@@ -18,7 +18,7 @@ from typing import Literal, Protocol
 
 from agent_core.library import LibraryError, SkillLibrary, calls
 from agent_core.llm import LlmClient, LlmError, ModelRole
-from agent_core.plugins import JsonObject, JsonValue, PluginClient, PluginError
+from agent_core.plugins import JsonObject, JsonValue, PluginClient, PluginError, PluginRpcError
 from agent_core.skills import SkillResult, SkillRunError, run_skill
 from agent_core.verifier import Predicate, PredicateError, Verdict, evaluate, parse_predicate
 from agent_core.voyager.prompts import (
@@ -45,6 +45,10 @@ LIBRARY_RESULTS = 3
 VERDICT_WAIT_S = 3.0
 VERDICT_POLL_S = 0.25
 SETTLE_WAIT_S = 3.0
+# A reflex may take the bot for up to ~30 s (a fight); a skill it cut short runs again.
+REFLEX_WAIT_S = 45.0
+REFLEX_RETRIES = 2
+NOT_READY = -32001
 
 PredicateSource = Literal["task", "llm", "none"]
 # Why a run cannot count either way: these are left out of success rates.
@@ -78,7 +82,31 @@ class PluginSession:
         return await self.plugin.observe()
 
     async def run_skill(self, code: str, timeout_s: float) -> SkillResult:
-        return await run_skill(self.plugin, code, timeout_s=timeout_s)
+        # An emergency reflex (L0) outranks the skill (decision 13): it may refuse a start or cut a
+        # run short. Neither is the skill's fault, so the skill runs again once the reflex is done
+        # (skills check their goal first, so a re-run continues rather than repeats).
+        result: SkillResult | None = None
+        for _ in range(REFLEX_RETRIES + 1):
+            await self._reflex_done()
+            try:
+                result = await run_skill(self.plugin, code, timeout_s=timeout_s)
+            except PluginRpcError as error:
+                if error.code != NOT_READY:
+                    raise
+                continue
+            if result.status != "cancelled" or "reflex" not in (result.error or ""):
+                return result
+        if result is None:
+            raise PluginError("a reflex kept the bot busy; the skill could not start")
+        return result
+
+    async def _reflex_done(self) -> None:
+        deadline = asyncio.get_running_loop().time() + REFLEX_WAIT_S
+        while asyncio.get_running_loop().time() < deadline:
+            status = await self.plugin.request("status")
+            if not (isinstance(status, dict) and status.get("reflexBusy")):
+                return
+            await asyncio.sleep(0.5)
 
     async def check(self, code: str) -> str | None:
         reply = await self.plugin.request("skill.check", {"code": code})
@@ -88,6 +116,7 @@ class PluginSession:
     async def reset(self) -> bool:
         if self.scenario is None:
             return False
+        await self._reflex_done()
         player = (await self.plugin.observe({"nearby": False})).get("username")
         await self.scenario.request("scenario.reset", {**self.reset_params, "player": player})
         if self.setup:

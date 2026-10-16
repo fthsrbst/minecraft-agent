@@ -25,6 +25,8 @@ export class MinecraftRuntime {
   private actQueue: Promise<unknown> = Promise.resolve();
   private currentAction: AbortController | null = null;
   private pendingActs = 0;
+  // Bumped by interrupt(): queued actions from before the interrupt are dropped, not run late.
+  private generation = 0;
   private readyListeners: ((bot: Bot) => void)[] = [];
 
   constructor(
@@ -66,10 +68,11 @@ export class MinecraftRuntime {
     return this.requireBot();
   }
 
-  /** Stops the running action at once; it resolves with `interrupted: true`. */
+  /** Stops the running action at once and drops queued ones; they resolve `interrupted: true`. */
   interrupt(): boolean {
+    this.generation += 1;
     if (this.currentAction === null) {
-      return false;
+      return this.pendingActs > 0;
     }
     this.currentAction.abort();
     this.bot?.clearControlStates();
@@ -78,8 +81,13 @@ export class MinecraftRuntime {
 
   act(action: Action): Promise<JsonObject> {
     this.pendingActs += 1;
+    const generation = this.generation;
     const run = this.actQueue
-      .then(() => this.runAction(action))
+      .then(() =>
+        generation === this.generation
+          ? this.runAction(action)
+          : Promise.resolve<JsonObject>({ ok: false, interrupted: true }),
+      )
       .finally(() => {
         this.pendingActs -= 1;
       });
