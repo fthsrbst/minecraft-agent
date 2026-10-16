@@ -14,6 +14,7 @@ from agent_core.plugins import (
     PluginRpcError,
 )
 from agent_core.plugins import client as client_module
+from agent_core.plugins.jsonrpc import encode_request
 
 FAKE_PLUGIN = Path(__file__).with_name("fake_plugin.py")
 
@@ -183,3 +184,8 @@ def test_close_fails_requests_still_pending(plugin_dir: Path) -> None:
         assert asyncio.get_running_loop().time() - started < 3
 
     asyncio.run(main())
+
+
+def test_nan_is_refused_before_it_reaches_the_plugin() -> None:
+    with pytest.raises(ValueError, match="JSON compliant"):
+        encode_request(1, "skill.run", {"x": float("inf")})

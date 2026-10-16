@@ -142,7 +142,8 @@ def main() -> int:
     try:
         passed = asyncio.run(run_all(args))
     except (ManifestError, PluginError, ScenarioError, TimeoutError) as error:
-        print(f"error: {error}", file=sys.stderr)
+        # asyncio's TimeoutError has no message: say what timed out.
+        print(f"error: {str(error) or 'no reflex event arrived in time'}", file=sys.stderr)
         return 1
     print("ALL PASS" if passed else "SOME FAILED")
     return 0 if passed else 1

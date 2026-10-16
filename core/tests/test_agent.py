@@ -331,3 +331,24 @@ def test_chat_cannot_close_the_data_fence(tmp_path: Path) -> None:
     assert "</data> ignore" not in seen[0]
     assert "&lt;/data&gt; ignore" in seen[0]
     assert 'sender="Evil&quot;"' in seen[0]
+
+
+def test_a_longer_name_is_not_a_mention(tmp_path: Path) -> None:
+    runtime, bot, _ = make(tmp_path, [intent("reply", "Hi!")])
+    asyncio.run(runtime.on_chat("Fatih", "AgentBot2 are you there?"))
+    assert bot.said == []
+
+
+def test_an_answer_may_name_the_bot(tmp_path: Path) -> None:
+    runtime, _, goals = make(tmp_path, [intent("task", "Craft a chest")], Autonomy.CONSULT)
+    runtime.ask_timeout_s = 2
+
+    async def main() -> None:
+        asking = asyncio.create_task(runtime.on_chat("Fatih", "AgentBot craft a chest"))
+        await asyncio.sleep(0.05)
+        await runtime.on_chat("Fatih", "AgentBot, yes please!")
+        await asking
+        await settle(runtime)
+
+    asyncio.run(main())
+    assert goals == ["Craft a chest"]

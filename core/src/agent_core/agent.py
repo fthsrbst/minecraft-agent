@@ -15,6 +15,7 @@ import argparse
 import asyncio
 import contextlib
 import logging
+import re
 import sys
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -48,7 +49,7 @@ MAX_PARALLEL_LLM = 2
 # L1 acts only on very confident model choices, and never for commands that overwrite memory.
 L1_ACT_CONFIDENCE = 0.9
 L1_NEVER = frozenset({"remember-place"})
-YES = frozenset({"yes", "y", "ok", "okay", "sure", "do it", "go", "evet"})
+YES = frozenset({"yes", "y", "ok", "okay", "sure", "do it", "go", "yes please", "evet"})
 # Turkish answers too: "hay\\u0131r" is the Turkish "no" spelled with a dotless i.
 NO = frozenset({"no", "n", "nope", "don't", "hayir", "hay\u0131r"})
 
@@ -126,7 +127,7 @@ class AgentRuntime:
         if invocation is not None:
             await self.command(invocation, sender, origin)
             return
-        if origin != "typed" or self.name.lower() not in message.lower():
+        if origin != "typed" or not self._mentions_me(message):
             return  # not for us (or a routed line that is not a command: never loop)
         now = asyncio.get_running_loop().time()
         if now - self._last_addressed.get(sender, -1e9) < self.rate_s:
@@ -255,10 +256,20 @@ class AgentRuntime:
         except PluginError as error:
             _log.warning("cannot chat: %s", error)
 
+    def _mentions_me(self, message: str) -> bool:
+        # A whole word: "QABot2, are you there?" is for another player, not for QABot.
+        return (
+            re.search(rf"(?<!\w){re.escape(self.name)}(?!\w)", message, re.IGNORECASE) is not None
+        )
+
     def _answer(self, sender: str, message: str) -> bool:
         if self._question is None or self._question[0] != sender:
             return False
-        words = message.strip().lower().strip(".!")
+        # "QABot yes" / "yes, QABot!" answer the question too.
+        without_name = re.sub(
+            rf"(?<!\w){re.escape(self.name)}(?!\w)", " ", message, flags=re.IGNORECASE
+        )
+        words = " ".join(re.sub(r"[^\w' ]", " ", without_name).lower().split())
         future = self._question[1]
         if future.done():
             return False

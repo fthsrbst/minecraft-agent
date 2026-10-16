@@ -13,7 +13,9 @@ type JsonObject = dict[str, JsonValue]
 def encode_request(request_id: int, method: str, params: JsonObject) -> bytes:
     message: JsonObject = {"jsonrpc": "2.0", "id": request_id, "method": method, "params": params}
     # One message per line: json.dumps never emits raw newlines, so the line framing is safe.
-    return json.dumps(message, separators=(",", ":")).encode() + b"\n"
+    # NaN/Infinity are not JSON: the plugin would answer a parse error without an id, and the
+    # request would hang until its timeout. allow_nan=False makes the bad request fail here.
+    return json.dumps(message, separators=(",", ":"), allow_nan=False).encode() + b"\n"
 
 
 def decode_message(line: bytes) -> JsonObject | None:

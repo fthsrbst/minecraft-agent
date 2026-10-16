@@ -159,10 +159,11 @@ const handlers = new Map<string, Handler>([
   [
     "act",
     (params) => {
-      requireNoReflex();
       const action = parseAction(params);
-      // Chat does not touch the controls, so the bot may talk while a skill works.
+      // Chat does not touch the controls, so the bot may talk while a skill or a reflex works
+      // (a "Stopped." or "Done" must not be lost because a zombie came by).
       if (action.primitive !== "chat") {
+        requireNoReflex();
         requireNoSkill();
       }
       return runtime.act(action);
