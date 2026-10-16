@@ -5,6 +5,7 @@ import { chooseReflex, type ReflexState } from "./rules.js";
 const calm: ReflexState = {
   health: 20,
   food: 20,
+  oxygen: 20,
   threats: [],
   hasWeapon: true,
   hasFood: true,
@@ -13,6 +14,12 @@ const calm: ReflexState = {
 const zombie = (distance: number, id = 1) => ({ id, name: "zombie", distance });
 
 describe("chooseReflex", () => {
+  it("swims up before anything else when the air runs low", () => {
+    const choice = chooseReflex({ ...calm, oxygen: 6, threats: [zombie(2)] });
+    expect(choice).toMatchObject({ kind: "surface" });
+    expect(chooseReflex({ ...calm, oxygen: 12 })).toBeNull();
+  });
+
   it("does nothing when all is well", () => {
     expect(chooseReflex(calm)).toBeNull();
   });

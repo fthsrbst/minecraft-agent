@@ -26,6 +26,7 @@ const COOLDOWN_MS: Readonly<Record<string, number>> = { sword: 625, axe: 1_000 }
 const FIST_COOLDOWN_MS = 250;
 const EVALUATE_MIN_GAP_MS = 50;
 const EAT_MAX_MS = 5_000;
+const SURFACE_MAX_MS = 10_000;
 // After a reflex fails (no food, a fight that timed out), the same kind waits before it retries,
 // so a hopeless reflex cannot keep interrupting the task every tick.
 const FAILED_COOLDOWN_MS = 5_000;
@@ -96,6 +97,7 @@ export class ReflexEngine {
     bot.on("entityMoved", onEvent);
     bot.on("entitySpawn", onEvent);
     bot.on("health", onEvent);
+    bot.on("breath", onEvent);
   }
 
   get busy(): boolean {
@@ -137,6 +139,7 @@ export class ReflexEngine {
     return chooseReflex({
       health: this.bot.health,
       food: this.bot.food,
+      oxygen: this.bot.oxygenLevel,
       threats: this.threats(),
       hasWeapon: this.weapon() !== null,
       hasFood: this.food() !== null,
@@ -193,7 +196,9 @@ export class ReflexEngine {
           ? await this.flee(choice.target, acted)
           : choice.kind === "fight"
             ? await this.fight(choice.target, acted)
-            : await this.eat(acted);
+            : choice.kind === "surface"
+              ? await this.surface(acted)
+              : await this.eat(acted);
     } catch (error: unknown) {
       outcome = `failed: ${error instanceof Error ? error.message : String(error)}`;
     } finally {
@@ -211,7 +216,7 @@ export class ReflexEngine {
       type: "reflex",
       reflex: choice.kind,
       reason: choice.reason,
-      ...(choice.kind === "eat" ? {} : { target: choice.target.name }),
+      ...(choice.kind === "flee" || choice.kind === "fight" ? { target: choice.target.name } : {}),
       interruptedWork: interrupted,
       reactionMs,
       durationMs: Math.round(performance.now() - started),
@@ -294,6 +299,21 @@ export class ReflexEngine {
       await sleep(50);
     }
     return "fight timed out";
+  }
+
+  /** Holds jump (swim up) until the air is full again; a ceiling of rock defeats this. */
+  private async surface(acted: () => void): Promise<string> {
+    this.bot.pathfinder.setGoal(null);
+    this.bot.setControlState("jump", true);
+    acted();
+    const deadline = performance.now() + SURFACE_MAX_MS;
+    while (performance.now() < deadline) {
+      await sleep(200);
+      if (this.bot.oxygenLevel >= 20) {
+        return "surfaced";
+      }
+    }
+    return `failed: still under water (air ${String(this.bot.oxygenLevel)})`;
   }
 
   private async eat(acted: () => void): Promise<string> {

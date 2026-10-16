@@ -177,8 +177,11 @@ class AgentRuntime:
     async def command(self, invocation: Invocation, sender: str, origin: Origin = "typed") -> None:
         spec = invocation.spec
         if spec.builtin == "stop":
-            stopped = await self.stop()
-            await self.say("Stopped." if stopped else "I was not doing anything.")
+            asking = self._question is not None
+            if await self.stop():
+                await self.say("Stopped.")
+            elif not asking:  # a withdrawn question already says "Okay, I will not."
+                await self.say("I was not doing anything.")
         elif spec.builtin == "remember-place":
             await self._remember(str(invocation.args.get("name", "home")), sender)
         elif spec.builtin == "list-places":
