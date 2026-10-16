@@ -164,8 +164,10 @@ export class RconClient {
     return new Promise<Packet>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.waiting.delete(id);
+        // The auth body is the password; it must never appear in an error message or log.
+        const what = type === PacketType.Auth ? "the login" : `"${body}"`;
         reject(
-          new RconError(`RCON gave no answer to "${body}" within ${String(this.timeoutMs)} ms.`),
+          new RconError(`RCON gave no answer to ${what} within ${String(this.timeoutMs)} ms.`),
         );
       }, this.timeoutMs);
       this.waiting.set(id, {

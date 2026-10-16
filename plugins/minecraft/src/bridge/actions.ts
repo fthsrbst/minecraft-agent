@@ -43,6 +43,11 @@ export function parseAction(params: JsonObject): Action {
           `chat: \`text\` must be a non-empty string of at most ${String(MAX_CHAT_LENGTH)} characters.`,
         );
       }
+      // Mineflayer sends each line of a multi-line text as its own message, so "hi\n/op x" would
+      // run a command. Control characters are refused outright.
+      if (/\p{Cc}/u.test(text)) {
+        throw invalid("chat: control characters (including newlines) are not allowed.");
+      }
       // Slash commands are server commands, not chat; the agent never issues them (AGENTS.md decision 8).
       if (text.trimStart().startsWith("/")) {
         throw invalid("chat: commands starting with `/` are not allowed.");

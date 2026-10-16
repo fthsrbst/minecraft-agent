@@ -31,7 +31,15 @@ The `[P1.4]` tag is the work-item ID in `plan.md`.
 
 ## Open
 
-_No unfinished work._
+### [P2.3] Contract decisions before skill execution (review round 1)
+- **Status**: blocked
+- **Opened by**: claude-code · **Date**: 2026-10-16
+- **Done so far**: 19 review findings fixed in #36; the open design items are listed in [docs/reviews/2026-10-16-sonnet-round-1.md](reviews/2026-10-16-sonnet-round-1.md#open-not-fixed-in-36).
+- **Remaining**: decide (Fatih) whether to add a P2.2b contract step: primitive broker over IPC, asynchronous `runSkill` with cancel, richer observation (nearby blocks/entities, visibility), predicate extensions, task-run records and world reset; and whether to adopt the plan cuts suggested there.
+- **Where I was**: `docs/reviews/2026-10-16-sonnet-round-1.md`
+- **Blocker / unknowns**: Fatih's decision on the plan changes.
+- **Branch / PR**: #36
+
 
 ---
 

@@ -39,9 +39,21 @@ describe("setupCommands", () => {
     ["bad clear", { clear: "yes" }, /clear/],
     ["unknown field", { summon: "zombie" }, /unknown setup field\(s\): summon/],
     ["inherited item name", { give: [{ item: "constructor" }] }, /unknown item "constructor"/],
+    ["air", { give: [{ item: "air" }] }, /unknown item "air"/],
     ["inherited time name", { time: "constructor" }, /time/],
   ])("rejects %s", (_name, spec, message) => {
     expect(() => setupCommands("AgentBot", spec)).toThrow(message);
+  });
+});
+
+describe("teleport formatting", () => {
+  it("never uses exponent notation", () => {
+    expect(setupCommands("AgentBot", { teleport: { x: 1e-7, y: 64, z: -2.5 } })).toEqual([
+      "tp AgentBot 0 64 -2.5",
+    ]);
+    expect(setupCommands("AgentBot", { teleport: { x: 1e7, y: 70.125, z: 0.5 } })).toEqual([
+      "tp AgentBot 10000000 70.125 0.5",
+    ]);
   });
 });
 

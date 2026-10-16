@@ -31,6 +31,12 @@ describe("parseAction", () => {
 
   it.each<[string, JsonObject, RegExp]>([
     ["slash command", { primitive: "chat", args: { text: " /op AgentBot" } }, /not allowed/],
+    [
+      "command after a newline",
+      { primitive: "chat", args: { text: "hi\n/me bypass" } },
+      /control characters/,
+    ],
+    ["carriage return", { primitive: "chat", args: { text: "hi\r/op x" } }, /control characters/],
     ["empty chat", { primitive: "chat", args: { text: "  " } }, /non-empty/],
     ["long chat", { primitive: "chat", args: { text: "a".repeat(257) } }, /at most 256/],
     [

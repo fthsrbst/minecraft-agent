@@ -17,6 +17,11 @@ const WEATHERS = ["clear", "rain", "thunder"] as const;
 // Removed on reset so leftovers from an earlier run cannot satisfy a later predicate.
 const RESET_RADIUS = 64;
 
+/** Plain decimal notation: the server rejects exponent forms such as 1e-7. */
+function coordinate(value: number): string {
+  return value.toFixed(6).replace(/\.?0+$/, "");
+}
+
 function invalid(message: string): RpcError {
   return new RpcError(ErrorCode.InvalidParams, `scenario: ${message}`);
 }
@@ -52,7 +57,7 @@ function giveCommands(player: string, value: JsonValue | undefined): string[] {
     }
     const { item, count = 1 } = entry;
     // Object.hasOwn, not `in`: `in` also accepts inherited names such as "constructor".
-    if (typeof item !== "string" || !Object.hasOwn(data.itemsByName, item)) {
+    if (typeof item !== "string" || item === "air" || !Object.hasOwn(data.itemsByName, item)) {
       throw invalid(`unknown item ${JSON.stringify(item ?? null)} for ${GAME_VERSION}.`);
     }
     if (
@@ -79,7 +84,7 @@ function teleportCommand(player: string, value: JsonValue | undefined): string[]
   const x = finiteNumber(value.x, "teleport.x", WORLD_LIMIT);
   const y = finiteNumber(value.y, "teleport.y", 320);
   const z = finiteNumber(value.z, "teleport.z", WORLD_LIMIT);
-  return [`tp ${player} ${String(x)} ${String(y)} ${String(z)}`];
+  return [`tp ${player} ${coordinate(x)} ${coordinate(y)} ${coordinate(z)}`];
 }
 
 function timeCommand(value: JsonValue | undefined): string[] {

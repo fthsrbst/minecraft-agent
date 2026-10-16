@@ -16,6 +16,7 @@ const round = (value: number): number => Math.round(value * 100) / 100;
 export class MinecraftRuntime {
   private bot: Bot | null = null;
   private connecting: Promise<void> | null = null;
+  private lastDisconnect: string | null = null;
   // Actions share the bot's control state, so they run one at a time in arrival order.
   private actQueue: Promise<unknown> = Promise.resolve();
 
@@ -86,7 +87,11 @@ export class MinecraftRuntime {
 
   private requireBot(): Bot {
     if (this.bot?.entity === undefined) {
-      throw new RpcError(ErrorCode.NotReady, "The bot has not spawned yet; call handshake first.");
+      const why =
+        this.lastDisconnect === null
+          ? "The bot has not spawned yet; call handshake first."
+          : `The bot is disconnected (${this.lastDisconnect}); call handshake to reconnect.`;
+      throw new RpcError(ErrorCode.NotReady, why);
     }
     return this.bot;
   }
@@ -108,6 +113,7 @@ export class MinecraftRuntime {
           return;
         }
         settled = true;
+        this.lastDisconnect = null;
         clearTimeout(timer);
         bot.removeAllListeners();
         // Without an error listener a late socket error would crash the whole plugin process.
@@ -166,6 +172,7 @@ export class MinecraftRuntime {
       this.emit({ type: "error", message: error.message });
     });
     bot.on("end", (reason) => {
+      this.lastDisconnect = reason;
       this.bot = null;
       this.connecting = null;
       this.emit({ type: "disconnected", reason });
