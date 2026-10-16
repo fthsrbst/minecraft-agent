@@ -57,3 +57,15 @@ sums that trace's LLM calls from telemetry and returns a `TaskRunRecord`, which 
 appends as one JSON line. The evaluation report (P4.2, P5.1) is computed from these records.
 `scenario_demo --seed N` runs every scenario in a fresh world of seed N and writes records to
 `runs/scenario-demo.jsonl`.
+
+## Running skills
+
+`agent_core.skills.run_skill(plugin, code, args, timeout_s=...)` starts a skill in the plugin's
+isolated executor and waits for its `skill.done` event; if the core gives up first it cancels the
+run in the plugin. Demo:
+
+```bash
+uv run --env-file ../.env python -m agent_core.skill_demo ../plugins/minecraft \
+  ../plugins/minecraft/skills/wooden-pickaxe.js --seed 20261119 \
+  --predicate '{"type": "has_item", "item": "wooden_pickaxe"}'
+```
