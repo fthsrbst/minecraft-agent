@@ -45,6 +45,7 @@ const manifest = JSON.parse(
 ) as Manifest;
 
 const visibility = parseVisibility(process.env.MC_VISIBILITY);
+const skillGuide = readFileSync(new URL("../prompts/skill-guide.md", import.meta.url), "utf8");
 
 const emit = (event: JsonObject): void => {
   server.notify("event", event);
@@ -90,6 +91,8 @@ const handlers = new Map<string, Handler>([
         methods: ["handshake", "observe", "act", "interrupt", "skill.run", "skill.cancel"],
         primitives: ACT_PRIMITIVES,
         skillApi: SKILL_API,
+        // Game knowledge for the code-writing prompt; the core inserts it without reading it.
+        skillGuide,
       };
     },
   ],

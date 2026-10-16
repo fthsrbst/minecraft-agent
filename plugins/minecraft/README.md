@@ -88,3 +88,9 @@ an IPC call that the broker validates and performs:
 While a skill runs, `act` is refused; `interrupt` or `skill.cancel` stops the skill. Hand-written
 skills: `skills/collect-logs.js`, `skills/wooden-pickaxe.js`, and `skills/endless-loop.js` (a test
 fixture that must be killed).
+
+## Tasks and the skill guide
+
+`tasks/*.json` are learning tasks for the Voyager loop (`id`, `goal`, `predicate`, optional `setup`, `reset`,
+`timeoutS`). `prompts/skill-guide.md` holds the game facts the code-writing prompt needs; the handshake returns it
+as `skillGuide`, so the core never contains game knowledge.

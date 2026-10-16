@@ -1,0 +1,6 @@
+{
+  "id": "stone-pickaxe",
+  "goal": "Craft a stone pickaxe, starting with an empty inventory.",
+  "predicate": { "type": "has_item", "item": "stone_pickaxe" },
+  "timeoutS": 360
+}
