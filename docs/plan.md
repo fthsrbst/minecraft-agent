@@ -87,7 +87,8 @@ end to end. Depth (sandbox hardening, statistics, L3 fine-tuning, voice, Doom) m
 |---|---|---|
 | P2.1 | Telemetry and LLM client | in review (#34) |
 | P2.2 | Predicates and RCON scenarios | in review |
-| P2.2b | Review round 1 fixes ([review](reviews/2026-10-16-sonnet-round-1.md)) | in review |
+| P2.2a | Review round 1 fixes ([review](reviews/2026-10-16-sonnet-round-1.md)) | in review (#36) |
+| P2.2b | Contract step: observation, world reset, run records | in progress |
 | P2.3 | Skill execution in the plugin | todo |
 | P2.4 | The Voyager loop + skill library | todo |
 
@@ -100,6 +101,15 @@ end to end. Depth (sandbox hardening, statistics, L3 fine-tuning, voice, Doom) m
 - **Deliverables:** predicates over observations (`has_item(name, n)`, `near(pos, r)`, …) returning `true / false / unknown`; an RCON helper that sets up a scenario (`/give`, `/tp`, `/clear`) and resets it.
 - **Acceptance:** predicates give no false success on prepared negative states; a scenario can be reset and rerun.
 - **Learning focus:** why verification is independent of the code being verified, test fixtures, determinism.
+
+### P2.2b Contract step (added 2026-10-16 after review round 1)
+- **Goal:** fix the contract before LLM-written code runs, so P2.3–P4.2 build on the right shape.
+- **Deliverables:** richer observation (nearby blocks and entities, equipment, fair/full visibility, tick); handshake
+  lists real methods and primitive schemas; `interrupt`; scenario setup with `fill` / `place` / `summon`, reset to a
+  spawn point; a fresh world per seed restored from a pristine copy (`scenario.world`); a task-run record with
+  `world_instance_id` and per-trace LLM totals in the core.
+- **Acceptance:** a fresh world is restored per run; an observation names nearby logs; a run record links a task to
+  its seed, world, verdict, time and LLM cost.
 
 ### P2.3 Skill execution in the plugin
 - **Deliverables:** `runSkill(code, args)` runs JavaScript skill code in a child process with a timeout and a deny-list; a few hand-written primitives the skills may call (`goTo`, `mineBlock`, `craft`, `collect`).

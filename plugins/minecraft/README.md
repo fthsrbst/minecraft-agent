@@ -22,30 +22,41 @@ TypeScript is pinned to 6.0: `typescript-eslint` 8.x does not support TypeScript
 
 ## Protocol
 
-`plugin.json` is the manifest the core reads: id, version, protocol version (`gpp/1`) and the command
-that starts the plugin. The process speaks newline-delimited JSON-RPC 2.0 on stdin/stdout; stdout
-carries protocol messages only, logs go to stderr.
+`plugin.json` is the manifest the core reads: id, version, protocol version (`gpp/1`), the command
+that starts each process, and the environment variables each process may receive (`env`). The
+process speaks newline-delimited JSON-RPC 2.0 on stdin/stdout; stdout carries protocol messages
+only, logs go to stderr.
 
-| Method      | Params                                                          | Result                                                             |
-| ----------- | --------------------------------------------------------------- | ------------------------------------------------------------------ |
-| `handshake` | `{ protocolVersion }`                                           | identity, game, methods, primitives (joins the server first)       |
-| `observe`   | –                                                               | `{ position, yaw, dimension, health, food, timeOfDay, inventory }` |
-| `act`       | `{ primitive: "chat", args: { text } }`                         | `{ ok }`                                                           |
-| `act`       | `{ primitive: "move", args: { direction, durationMs, jump? } }` | `{ ok, position }`                                                 |
+| Method      | Params                                                          | Result                                                                                       |
+| ----------- | --------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `handshake` | `{ protocolVersion }`                                           | identity, game, `visibility`, `methods`, `primitives` (with JSON Schemas); joins the server  |
+| `observe`   | `{ nearby? = true, radius? = 16 }`                              | `username, tick, visibility, position, yaw, dimension, health, food, timeOfDay, standingOn,` |
+|             |                                                                 | `equipment, inventory` and, with `nearby`, `nearbyBlocks` (grouped) and `nearbyEntities`     |
+| `act`       | `{ primitive: "chat", args: { text } }`                         | `{ ok }`; no `/` commands, no control characters                                             |
+| `act`       | `{ primitive: "move", args: { direction, durationMs, jump? } }` | `{ ok, interrupted, position }`                                                              |
+| `interrupt` | –                                                               | `{ interrupted }`: stops the running action at once                                          |
 
 Events arrive as `event` notifications: `chat`, `health`, `death`, `kicked`, `error`, `disconnected`.
+
+`MC_VISIBILITY=fair` (default, used for evaluation) reports only blocks with a face open to air;
+`full` reports every block in range (AGENTS.md decision 15). An observation with `nearby` takes
+about 80 ms; use `nearby: false` (under 1 ms) for fast loops.
 
 ## Scenario component (evaluator only)
 
 `node dist/scenario-main.js` (manifest component `scenario`) sets up and resets test states over
-RCON. It is a separate process so the agent's bot never holds server-console power (AGENTS.md
-decision 15). It reads `MC_RCON_HOST` (local only), `MC_RCON_PORT` and `MC_RCON_PASSWORD`.
+RCON and switches worlds. It is a separate process so the agent's bot never holds server-console
+power (AGENTS.md decision 15). It reads `MC_RCON_HOST` (local only), `MC_RCON_PORT`,
+`MC_RCON_PASSWORD` and `MC_COMPOSE_DIR` (default: the repository root).
 
-| Method           | Params                                                                                                                  |
-| ---------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `scenario.setup` | `{ player, spec: { clear?, give?: [{ item, count }], teleport?: { x, y, z }, time?, weather? } }`                       |
-| `scenario.reset` | `{ player }`: empty inventory, effects cleared, healed and fed, item drops within 64 blocks removed, day, clear weather |
+| Method           | Params                                                                                            |
+| ---------------- | ------------------------------------------------------------------------------------------------- |
+| `scenario.setup` | `{ player, spec: { clear?, fill?, place?, teleport?, give?, summon?, time?, weather? } }`         |
+| `scenario.reset` | `{ player, spawn? }`: scenario mobs and item drops removed, inventory and effects cleared,        |
+|                  | healed and fed, day, clear weather, and back at `spawn` if given                                  |
+| `scenario.world` | `{ seed }`: restores a fresh copy of that seed's world and restarts the server (~7 s; the         |
+|                  | first call per seed generates it, ~18 s). Returns `worldInstanceId`. The bot must handshake again |
 
-Every value is validated before it reaches a command (items are checked against the 1.21.11 item
-list), and a server reply such as "No player was found" fails the call. Scenario files live in
-`scenarios/`.
+Every value is validated before it reaches a command (items, blocks and entities are checked
+against the 1.21.11 data), summoned entities are tagged so reset removes exactly them, and a server
+reply such as "No player was found" fails the call. Scenario files live in `scenarios/`.

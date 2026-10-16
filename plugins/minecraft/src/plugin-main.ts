@@ -5,8 +5,9 @@
  */
 import { readFileSync } from "node:fs";
 
-import { parseAction } from "./bridge/actions.js";
+import { ACT_PRIMITIVES, parseAction } from "./bridge/actions.js";
 import { MinecraftRuntime } from "./bridge/minecraft-runtime.js";
+import { parseObserveOptions, parseVisibility } from "./bridge/observation.js";
 import { loadBotConfig } from "./bot-config.js";
 import {
   ErrorCode,
@@ -41,6 +42,8 @@ const manifest = JSON.parse(
   readFileSync(new URL("../plugin.json", import.meta.url), "utf8"),
 ) as Manifest;
 
+const visibility = parseVisibility(process.env.MC_VISIBILITY);
+
 const runtime = new MinecraftRuntime(loadBotConfig(process.env), (event) => {
   server.notify("event", event);
 });
@@ -61,13 +64,27 @@ const handlers = new Map<string, Handler>([
         plugin: { id: manifest.id, version: manifest.version },
         game: manifest.game,
         component: "main",
-        methods: ["handshake", "observe", "act"],
-        primitives: ["chat", "move"],
+        visibility,
+        methods: ["handshake", "observe", "act", "interrupt"],
+        primitives: ACT_PRIMITIVES,
       };
     },
   ],
-  ["observe", () => runtime.observe()],
+  [
+    "observe",
+    (params) => {
+      try {
+        return runtime.observe(parseObserveOptions(params, visibility));
+      } catch (error: unknown) {
+        if (error instanceof RangeError) {
+          throw new RpcError(ErrorCode.InvalidParams, error.message);
+        }
+        throw error;
+      }
+    },
+  ],
   ["act", (params) => runtime.act(parseAction(params))],
+  ["interrupt", () => ({ interrupted: runtime.interrupt() })],
 ]);
 
 const server = new JsonRpcServer(handlers, (line) => {

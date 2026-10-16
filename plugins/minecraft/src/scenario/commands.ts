@@ -16,6 +16,20 @@ const TIMES = { day: 1000, noon: 6000, night: 13000, midnight: 18000 } as const;
 const WEATHERS = ["clear", "rain", "thunder"] as const;
 // Removed on reset so leftovers from an earlier run cannot satisfy a later predicate.
 const RESET_RADIUS = 64;
+// The server refuses larger fills; also a sane bound for a test arena.
+const MAX_FILL_VOLUME = 32_768;
+const MAX_LIST = 64;
+const MAX_SUMMONS = 20;
+// Entities a scenario creates carry this tag, so reset can remove exactly them.
+export const SCENARIO_TAG = "scenario";
+const Y_MIN = -64;
+const Y_MAX = 320;
+
+interface BlockPosition {
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+}
 
 /** Plain decimal notation: the server rejects exponent forms such as 1e-7. */
 function coordinate(value: number): string {
@@ -35,6 +49,78 @@ function finiteNumber(value: JsonValue | undefined, name: string, limit: number)
     throw invalid(`\`${name}\` must be a number within ±${String(limit)}.`);
   }
   return value;
+}
+
+function list(value: JsonValue | undefined, name: string, max: number): JsonObject[] {
+  if (value === undefined) {
+    return [];
+  }
+  if (!Array.isArray(value) || value.length > max) {
+    throw invalid(`\`${name}\` must be a list of at most ${String(max)} objects.`);
+  }
+  return value.map((entry) => {
+    if (!isObject(entry)) {
+      throw invalid(`each \`${name}\` entry must be an object.`);
+    }
+    return entry;
+  });
+}
+
+function blockPosition(value: JsonValue | undefined, name: string): BlockPosition {
+  if (!isObject(value)) {
+    throw invalid(`\`${name}\` must be { x, y, z }.`);
+  }
+  const axis = (key: "x" | "y" | "z", limit: number, min = -limit): number => {
+    const n = value[key];
+    if (typeof n !== "number" || !Number.isInteger(n) || n < min || n > limit) {
+      throw invalid(`\`${name}.${key}\` must be an integer block coordinate.`);
+    }
+    return n;
+  };
+  return { x: axis("x", WORLD_LIMIT), y: axis("y", Y_MAX, Y_MIN), z: axis("z", WORLD_LIMIT) };
+}
+
+function blockName(value: JsonValue | undefined): string {
+  if (typeof value !== "string" || !Object.hasOwn(data.blocksByName, value)) {
+    throw invalid(`unknown block ${JSON.stringify(value ?? null)} for ${GAME_VERSION}.`);
+  }
+  return value;
+}
+
+const at = ({ x, y, z }: BlockPosition): string => `${String(x)} ${String(y)} ${String(z)}`;
+
+function placeCommands(value: JsonValue | undefined): string[] {
+  return list(value, "place", MAX_LIST).map(
+    (entry) => `setblock ${at(blockPosition(entry, "place"))} minecraft:${blockName(entry.block)}`,
+  );
+}
+
+function fillCommands(value: JsonValue | undefined): string[] {
+  return list(value, "fill", MAX_LIST).map((entry) => {
+    const from = blockPosition(entry.from, "fill.from");
+    const to = blockPosition(entry.to, "fill.to");
+    const volume =
+      (Math.abs(to.x - from.x) + 1) * (Math.abs(to.y - from.y) + 1) * (Math.abs(to.z - from.z) + 1);
+    if (volume > MAX_FILL_VOLUME) {
+      throw invalid(`fill volume ${String(volume)} is over ${String(MAX_FILL_VOLUME)} blocks.`);
+    }
+    return `fill ${at(from)} ${at(to)} minecraft:${blockName(entry.block)}`;
+  });
+}
+
+function summonCommands(value: JsonValue | undefined): string[] {
+  return list(value, "summon", MAX_SUMMONS).map((entry) => {
+    const { entity } = entry;
+    if (
+      typeof entity !== "string" ||
+      entity === "player" ||
+      !Object.hasOwn(data.entitiesByName, entity)
+    ) {
+      throw invalid(`unknown entity ${JSON.stringify(entity ?? null)} for ${GAME_VERSION}.`);
+    }
+    const position = blockPosition(entry, "summon");
+    return `summon minecraft:${entity} ${at(position)} {Tags:["${SCENARIO_TAG}"]}`;
+  });
 }
 
 export function parsePlayer(value: JsonValue | undefined): string {
@@ -113,11 +199,21 @@ function weatherCommand(value: JsonValue | undefined): string[] {
 }
 
 /**
- * Setup spec: `{ clear?, give?: [{ item, count }], teleport?: { x, y, z }, time?, weather? }`.
- * `clear` empties the inventory first so the scenario starts from a known state.
+ * Setup spec: `{ clear?, fill?, place?, teleport?, give?, summon?, time?, weather? }`.
+ * Terrain first (fill, then single blocks), then the player, then entities: the bot must not be
+ * teleported into a block that the fill is about to create.
  */
 export function setupCommands(player: string, spec: JsonObject): string[] {
-  const known = new Set(["clear", "give", "teleport", "time", "weather"]);
+  const known = new Set([
+    "clear",
+    "fill",
+    "place",
+    "teleport",
+    "give",
+    "summon",
+    "time",
+    "weather",
+  ]);
   const unknown = Object.keys(spec).filter((key) => !known.has(key));
   if (unknown.length > 0) {
     throw invalid(`unknown setup field(s): ${unknown.join(", ")}.`);
@@ -127,16 +223,25 @@ export function setupCommands(player: string, spec: JsonObject): string[] {
   }
   return [
     ...(spec.clear === true ? [`clear ${player}`] : []),
+    ...fillCommands(spec.fill),
+    ...placeCommands(spec.place),
     ...teleportCommand(player, spec.teleport),
     ...giveCommands(player, spec.give),
+    ...summonCommands(spec.summon),
     ...timeCommand(spec.time),
     ...weatherCommand(spec.weather),
   ];
 }
 
-/** Brings the player back to a neutral state: empty inventory, full health and food, day, no drops. */
-export function resetCommands(player: string): string[] {
+/**
+ * Brings the player back to a neutral state: empty inventory, full health and food, day, no drops,
+ * no scenario mobs, and (if given) back at a spawn point so position predicates start false.
+ * Terrain is not restored here; a fresh world per seed does that (`scenario.world`).
+ */
+export function resetCommands(player: string, spawn?: JsonValue): string[] {
   return [
+    ...(spawn === undefined ? [] : teleportCommand(player, spawn)),
+    `kill @e[tag=${SCENARIO_TAG}]`,
     `clear ${player}`,
     `effect clear ${player}`,
     `gamemode survival ${player}`,
@@ -161,6 +266,13 @@ const FAILURE_REPLIES = [
   "No entity was found",
 ];
 
-export function isFailureReply(reply: string): boolean {
+/** Removing entities that are already gone is the goal of a kill, not a failure. */
+const NOTHING_TO_KILL = "No entity was found";
+
+export function isFailureReply(reply: string, command = ""): boolean {
+  const isKill = command.startsWith("kill ") || command.includes(" run kill ");
+  if (isKill && reply.includes(NOTHING_TO_KILL)) {
+    return false;
+  }
   return FAILURE_REPLIES.some((marker) => reply.includes(marker));
 }

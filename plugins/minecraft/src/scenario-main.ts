@@ -15,6 +15,7 @@ import {
 } from "./rpc/json-rpc.js";
 import { isFailureReply, parsePlayer, resetCommands, setupCommands } from "./scenario/commands.js";
 import { RconClient, RconError } from "./scenario/rcon.js";
+import { freshWorld, type WorldConfig, WorldError } from "./scenario/world.js";
 
 // stdout carries protocol messages only (see plugin-main.ts).
 console.log = console.error;
@@ -57,13 +58,43 @@ async function connectRcon(): Promise<RconClient> {
   return rcon;
 }
 
-// Setup and reset must not interleave on the one RCON connection, so calls run one after another.
+// Setup, reset and world switches must not interleave (one RCON connection, one server), so all
+// calls run one after another.
 let queue: Promise<unknown> = Promise.resolve();
 
-function run(commands: readonly string[]): Promise<JsonObject> {
-  const next = queue.then(() => runNow(commands));
+function serialized<T>(task: () => Promise<T>): Promise<T> {
+  const next = queue.then(task);
   queue = next.catch(() => undefined);
   return next;
+}
+
+function run(commands: readonly string[]): Promise<JsonObject> {
+  return serialized(() => runNow(commands));
+}
+
+const worldConfig: WorldConfig = {
+  // The plugin lives in <repo>/plugins/minecraft; docker-compose.yml is at the repo root.
+  composeDir: process.env.MC_COMPOSE_DIR ?? new URL("../../..", import.meta.url).pathname,
+  service: "minecraft",
+  container: "minecraft-agent-server",
+};
+
+function switchWorld(seed: unknown): Promise<JsonObject> {
+  return serialized(async () => {
+    // The server is about to restart; the old RCON connection would be dead anyway.
+    rcon?.close();
+    rcon = null;
+    try {
+      const world = await freshWorld(worldConfig, seed, process.env);
+      await connectRcon();
+      return { ok: true, ...world };
+    } catch (error: unknown) {
+      if (error instanceof WorldError) {
+        throw new RpcError(ErrorCode.InternalError, error.message);
+      }
+      throw error;
+    }
+  });
 }
 
 /** Runs commands in order and stops at the first one the server rejects. */
@@ -80,7 +111,7 @@ async function runNow(commands: readonly string[]): Promise<JsonObject> {
       throw new RpcError(ErrorCode.InternalError, message, { command, done: results });
     }
     results.push({ command, reply });
-    if (isFailureReply(reply)) {
+    if (isFailureReply(reply, command)) {
       throw new RpcError(ErrorCode.InternalError, `Server rejected "${command}": ${reply}`, {
         command,
         reply,
@@ -106,7 +137,7 @@ const handlers = new Map<string, Handler>([
         protocolVersion: manifest.protocolVersion,
         plugin: { id: manifest.id, version: manifest.version },
         component: "scenario",
-        methods: ["handshake", "scenario.setup", "scenario.reset"],
+        methods: ["handshake", "scenario.setup", "scenario.reset", "scenario.world"],
       };
     },
   ],
@@ -120,7 +151,8 @@ const handlers = new Map<string, Handler>([
       return run(setupCommands(parsePlayer(params.player), spec));
     },
   ],
-  ["scenario.reset", (params) => run(resetCommands(parsePlayer(params.player)))],
+  ["scenario.reset", (params) => run(resetCommands(parsePlayer(params.player), params.spawn))],
+  ["scenario.world", (params) => switchWorld(params.seed)],
 ]);
 
 const server = new JsonRpcServer(handlers, (line) => {

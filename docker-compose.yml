@@ -11,8 +11,9 @@ services:
       # Offline mode lets the bot join without a Microsoft account; safe only because the server is localhost-only.
       ONLINE_MODE: "FALSE"
       ENFORCE_SECURE_PROFILE: "FALSE"
+      # One level directory per seed; the evaluator switches worlds with scenario.world (P2.2b).
       SEED: "${MC_SEED:-20261119}"
-      LEVEL: world
+      LEVEL: "${MC_LEVEL:-world}"
       MODE: survival
       DIFFICULTY: easy
       MAX_PLAYERS: "4"

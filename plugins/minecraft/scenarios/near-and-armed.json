@@ -1,17 +1,46 @@
 {
   "id": "near-and-armed",
-  "description": "The bot stands near a fixed point holding a stone sword and full health.",
+  "description": "The bot stands near a fixed point holding a stone sword and full health; reset moves it away.",
   "setup": {
     "clear": true,
-    "teleport": { "x": 7.5, "y": 74, "z": 26.5 },
-    "give": [{ "item": "stone_sword" }]
+    "teleport": {
+      "x": 7.5,
+      "y": 74,
+      "z": 26.5
+    },
+    "give": [
+      {
+        "item": "stone_sword"
+      }
+    ]
   },
   "predicate": {
     "type": "all",
     "of": [
-      { "type": "near", "x": 7.5, "y": 74, "z": 26.5, "radius": 2 },
-      { "type": "has_item", "item": "stone_sword" },
-      { "type": "compare", "path": "health", "op": ">=", "value": 20 }
+      {
+        "type": "near",
+        "x": 7.5,
+        "y": 74,
+        "z": 26.5,
+        "radius": 2
+      },
+      {
+        "type": "has_item",
+        "item": "stone_sword"
+      },
+      {
+        "type": "compare",
+        "path": "health",
+        "op": ">=",
+        "value": 20
+      }
     ]
+  },
+  "reset": {
+    "spawn": {
+      "x": -4.5,
+      "y": 77,
+      "z": 36.5
+    }
   }
 }

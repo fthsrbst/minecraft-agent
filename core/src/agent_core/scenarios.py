@@ -7,10 +7,10 @@ files therefore live with the plugin, and the core only loads and runs them.
 import asyncio
 import json
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
-from agent_core.plugins import JsonObject, PluginClient
+from agent_core.plugins import JsonObject, JsonValue, PluginClient
 from agent_core.verifier import Predicate, PredicateError, Verdict, evaluate, parse_predicate
 
 
@@ -25,6 +25,8 @@ class Scenario:
     setup: JsonObject
     predicate: Predicate
     source: Path
+    # Extra reset options for the plugin (e.g. where to put the player); opaque to the core.
+    reset: JsonObject = field(default_factory=dict[str, JsonValue])
 
 
 def load_scenario(path: Path) -> Scenario:
@@ -42,11 +44,14 @@ def load_scenario(path: Path) -> Scenario:
         raise ScenarioError(f"{path}: `description` must be a string.")
     if not isinstance(setup, dict):
         raise ScenarioError(f"{path}: `setup` must be an object.")
+    reset = data.get("reset", {})
+    if not isinstance(reset, dict):
+        raise ScenarioError(f"{path}: `reset` must be an object.")
     try:
         predicate = parse_predicate(data.get("predicate"))
     except PredicateError as error:
         raise ScenarioError(f"{path}: invalid predicate: {error}") from error
-    return Scenario(scenario_id, description, setup, predicate, path)
+    return Scenario(scenario_id, description, setup, predicate, path, reset)
 
 
 @dataclass(frozen=True, slots=True)

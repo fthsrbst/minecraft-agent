@@ -20,6 +20,34 @@ export type Action =
       readonly jump: boolean;
     };
 
+/** What `act` accepts, as JSON Schema; returned by the handshake so the core and the LLM see it. */
+export const ACT_PRIMITIVES: JsonObject[] = [
+  {
+    name: "chat",
+    description: "Say a line in game chat. No commands (/) and no control characters.",
+    args: {
+      type: "object",
+      properties: { text: { type: "string", minLength: 1, maxLength: MAX_CHAT_LENGTH } },
+      required: ["text"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "move",
+    description: "Walk in a direction for a short time (no pathfinding).",
+    args: {
+      type: "object",
+      properties: {
+        direction: { enum: [...MOVE_DIRECTIONS] },
+        durationMs: { type: "integer", minimum: 1, maximum: MAX_MOVE_MS },
+        jump: { type: "boolean" },
+      },
+      required: ["direction", "durationMs"],
+      additionalProperties: false,
+    },
+  },
+];
+
 function invalid(message: string): RpcError {
   return new RpcError(ErrorCode.InvalidParams, message);
 }
