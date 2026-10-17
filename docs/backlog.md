@@ -73,18 +73,30 @@ The `[P1.4]` tag is the work-item ID in `plan.md`.
 - **Blocker / unknowns**: v1 cannot see inventory/crafting (watcher bot, not the proxy); block states and overhangs
   are not supported (reported as unsupported/warnings).
 
-### [P4.2] Full plan-v1 evaluation run in progress
-- **Status**: partial (running)
-- **Opened by**: claude-code · **Date**: 2026-10-16
-- **Done so far**: started 2026-10-16 ~20:05 from the main checkout (`p3.5-round4-fixes`, commit with the round 4
-  fixes): `uv run --env-file ../.env python -m agent_core.evaluation run ../plugins/minecraft
-  ../plugins/minecraft/eval/plan-v1.json --out runs/eval/plan-v1-full` (log: `core/runs/eval-full.log`). At 20:28 the
-  learning phase on seed 1001 was at task 18 (17-stone-sword false, the rest true).
-- **Remaining**: if it stopped (quota, sleep), rerun the same command: the runner resumes and skips finished
-  `(task, seed, arm)`. Then `uv run python -m agent_core.evaluation report runs/eval/plan-v1-full`, add the result to
-  PR #46 and `docs/notes.md`. Do not switch branches or rebuild `plugins/minecraft/dist` in the main checkout while
-  it runs.
-- **Pilot result (for comparison)**: `runs/eval/pilot-1`: frozen-library 9/9 vs no-library 6/9 on 3 tasks.
+### [P4.2] Full plan-v1 evaluation: first run is not valid (infrastructure failures)
+- **Status**: blocked (needs an infrastructure fix, then a rerun)
+- **Opened by**: claude-code · **Date**: 2026-10-17
+- **Done so far**: full run finished 2026-10-17 ~16:10 (`core/runs/eval/plan-v1-full`, report via
+  `uv run python -m agent_core.evaluation report runs/eval/plan-v1-full`). Learning 24/44; test no-library 19/66 (29%),
+  frozen-library 21/66 (32%), McNemar p = 0.75. **Do not report these numbers**: the failures are mostly the
+  server, not the agent. Failure reasons:
+  - `scenario.world`: "minecraft-agent-server was not healthy within …" (20 runs);
+  - bot disconnected with `keepAliveError` (17);
+  - handshake "No spawn within 60000 ms" (6);
+  - "a reflex kept the bot busy; the skill could not start" (6);
+  - 59 test runs "out of attempts", many with a wall time of about 15 s, which is too fast for real attempts.
+    Check whether those attempts failed on a dead bot.
+  The pilot (3 tasks, `runs/eval/pilot-1`) did not show these problems: the server degrades over a long run.
+- **Remaining**:
+  1. Investigate server health over many world switches: Docker/Colima memory and CPU, server logs
+     (`docker logs minecraft-agent-server`), the health-check timeout in `plugins/minecraft/src/scenario/world.ts`,
+     keepAlive timeouts (a long GC pause or an overloaded host).
+  2. The runner should mark infrastructure failures as **broken**, not as a FALSE verdict, and retry them. This
+     covers runs where the bot is disconnected, there is no spawn, or the world switch fails. Then a resume reruns
+     them: `runner.py` / `execute.py`.
+  3. Attempts that fail because the bot is gone must not use up attempts (`voyager/loop.py`).
+  4. Rerun (the runner resumes; delete or move `runs/eval/plan-v1-full` first for a clean run), write the report,
+     add it to PR #46 and `docs/notes.md`.
 
 ### [P3.2] Validate command arguments against the game before "On it"
 - **Status**: partial
